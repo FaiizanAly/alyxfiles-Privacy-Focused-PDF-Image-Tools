@@ -404,7 +404,7 @@ a { color: inherit; }
 
 /* ── TOOL DISCOVERY ────────────────────────────────────────────── */
 .tools-section {
-  padding: 8px 24px 56px;
+  padding: 8px 24px 16px;
   max-width: 960px;
   margin: 0 auto;
 }
@@ -420,7 +420,7 @@ a { color: inherit; }
 
 /* Each category is full-width, stacked */
 .tool-category {
-  margin-bottom: 22px;
+  margin-bottom: 14px;
 }
 
 /* Category label with colored accent dot */
@@ -1287,7 +1287,7 @@ a { color: inherit; }
 
 /* ── INFO SECTIONS (Privacy / About) ───────────────────────────── */
 .info-section {
-  padding: 56px 24px;
+  padding: 20px 24px 36px;
   max-width: 1000px;
   margin: 0 auto;
 }
@@ -1557,7 +1557,7 @@ a { color: inherit; }
 
   .nav-hamburger { display: flex; }
 
-  .hero { padding: 80px 20px 24px; }
+  .hero { padding: 80px 20px 12px; }
   .hero-heading { font-size: clamp(30px, 9vw, 46px); }
 
   /* 2-column tool grid on tablet */
@@ -1574,8 +1574,8 @@ a { color: inherit; }
 
   .page-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
 
-  .tools-section { padding: 0 16px 40px; }
-  .info-section { padding: 44px 16px; }
+  .tools-section { padding: 0 16px 14px; }
+  .info-section { padding: 16px 16px 28px; }
 }
 
 @media (max-width: 480px) {

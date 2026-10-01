@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="alyxfiles – Simple PDF and image tools that run entirely in your browser. No uploads. No cloud. 100% private." />
+  <title>alyxfiles – PDF & Image Tools</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+
+  <!-- ===================== NAVIGATION ===================== -->
+  <nav class="navbar" id="navbar">
+    <div class="nav-inner">
+      <!-- Logo -->
+      <a href="#" class="nav-logo" onclick="showHome(); return false;" aria-label="alyxfiles home">
+        <img src="./assets/logo.png" alt="alyxfiles logo" class="nav-logo-img"
+          onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <span class="nav-logo-text" style="display:none;">aly<span class="red">x</span>files</span>
+      </a>
+
+      <!-- Desktop links -->
+      <div class="nav-links" id="navLinks">
+        <a href="#tools-section" class="nav-link" onclick="closeMenu()">Tools</a>
+        <a href="#privacy-section" class="nav-link" onclick="closeMenu()">Privacy</a>
+      </div>
+
+      <!-- Mobile hamburger -->
+      <button class="nav-hamburger" id="navHamburger" onclick="toggleMenu()" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ===================== HOME PAGE ===================== -->
+  <main id="homePage">
+
+    <!-- HERO -->
+    <section class="hero">
+      <h1 class="hero-title">Your files.<br /><span class="hero-highlight">Beautifully handled.</span></h1>
+      <p class="hero-subtitle">Simple PDF &amp; image tools, right in your browser.</p>
+    </section>
+
+    <!-- PRIVACY MESSAGE -->
+    <section class="privacy-card" id="privacy-section" aria-label="Privacy information">
+      <div class="privacy-inner">
+        <div class="privacy-icon">🔒</div>
+        <div class="privacy-content">
+          <h2 class="privacy-title">100% Local Processing</h2>
+          <p class="privacy-desc">Your files stay on your device. Files are processed directly in your browser and are
+            not uploaded to our server for processing.</p>
+          <div class="privacy-badges">
+            <span class="badge">No account required</span>
+            <span class="badge">No cloud storage</span>
+            <span class="badge">Processed locally</span>
+            <span class="badge">Downloaded to your device</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- PDF TOOLS -->
+    <section class="tools-section" id="tools-section">
+      <h2 class="section-title">PDF Tools</h2>
+      <div class="tools-grid" id="pdfToolsGrid">
+
+        <div class="tool-card" data-tool="merge-pdf" data-color="red">
+          <div class="tool-icon-wrap" style="--accent:#FF5252; --accent-bg:#FFF5F5;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9z" />
+              <polyline points="9 3 9 9 15 9" />
+              <path d="M13 17H8m5-4H8" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Merge PDF</h3>
+          <p class="tool-desc">Combine multiple PDFs into one file.</p>
+          <button class="btn-open-tool" onclick="openTool('merge-pdf')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="split-pdf" data-color="orange">
+          <div class="tool-icon-wrap" style="--accent:#FF9800; --accent-bg:#FFF8F0;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="12" y1="18" x2="12" y2="12" />
+              <line x1="9" y1="15" x2="15" y2="15" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Split PDF</h3>
+          <p class="tool-desc">Extract specific pages or ranges from a PDF.</p>
+          <button class="btn-open-tool" onclick="openTool('split-pdf')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="delete-pages" data-color="rose">
+          <div class="tool-icon-wrap" style="--accent:#E91E63; --accent-bg:#FFF0F5;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Delete Pages</h3>
+          <p class="tool-desc">Remove specific pages from your PDF.</p>
+          <button class="btn-open-tool" onclick="openTool('delete-pages')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="organize-pdf" data-color="purple">
+          <div class="tool-icon-wrap" style="--accent:#9C27B0; --accent-bg:#F8F0FF;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Organize PDF</h3>
+          <p class="tool-desc">Reorder, rotate, or remove pages visually.</p>
+          <button class="btn-open-tool" onclick="openTool('organize-pdf')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="rotate-pdf" data-color="blue">
+          <div class="tool-icon-wrap" style="--accent:#2196F3; --accent-bg:#F0F7FF;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Rotate PDF</h3>
+          <p class="tool-desc">Rotate pages 90°, 180°, or 270°.</p>
+          <button class="btn-open-tool" onclick="openTool('rotate-pdf')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="compress-pdf" data-color="green">
+          <div class="tool-icon-wrap" style="--accent:#4CAF50; --accent-bg:#F0FFF0;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="8 6 2 12 8 18" />
+              <polyline points="16 6 22 12 16 18" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Compress PDF</h3>
+          <p class="tool-desc">Reduce PDF file size for easier sharing.</p>
+          <button class="btn-open-tool" onclick="openTool('compress-pdf')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="pdf-to-image" data-color="cyan">
+          <div class="tool-icon-wrap" style="--accent:#00BCD4; --accent-bg:#F0FEFF;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+          </div>
+          <h3 class="tool-name">PDF → Image</h3>
+          <p class="tool-desc">Convert PDF pages to JPG or PNG images.</p>
+          <button class="btn-open-tool" onclick="openTool('pdf-to-image')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="image-to-pdf" data-color="indigo">
+          <div class="tool-icon-wrap" style="--accent:#3F51B5; --accent-bg:#F0F1FF;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="12" y1="18" x2="12" y2="12" />
+              <line x1="9" y1="15" x2="15" y2="15" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Image → PDF</h3>
+          <p class="tool-desc">Convert images into a single PDF file.</p>
+          <button class="btn-open-tool" onclick="openTool('image-to-pdf')">Open Tool</button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- IMAGE TOOLS -->
+    <section class="tools-section">
+      <h2 class="section-title">Image Tools</h2>
+      <div class="tools-grid">
+
+        <div class="tool-card" data-tool="compress-image" data-color="green">
+          <div class="tool-icon-wrap" style="--accent:#4CAF50; --accent-bg:#F0FFF0;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M8 12h8M12 8v8" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Compress Image</h3>
+          <p class="tool-desc">Reduce image file size without major quality loss.</p>
+          <button class="btn-open-tool" onclick="openTool('compress-image')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="resize-image" data-color="purple">
+          <div class="tool-icon-wrap" style="--accent:#9C27B0; --accent-bg:#F8F0FF;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="7 10 3 14 7 18" />
+              <polyline points="14 7 18 3 22 7" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Resize Image</h3>
+          <p class="tool-desc">Change image dimensions with aspect ratio control.</p>
+          <button class="btn-open-tool" onclick="openTool('resize-image')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="crop-image" data-color="orange">
+          <div class="tool-icon-wrap" style="--accent:#FF9800; --accent-bg:#FFF8F0;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+              <path d="M18 22V8a2 2 0 0 0-2-2H2" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Crop Image</h3>
+          <p class="tool-desc">Crop to exact dimensions or aspect ratios.</p>
+          <button class="btn-open-tool" onclick="openTool('crop-image')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="convert-image" data-color="teal">
+          <div class="tool-icon-wrap" style="--accent:#009688; --accent-bg:#F0FFFD;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="16 3 21 3 21 8" />
+              <line x1="4" y1="20" x2="21" y2="3" />
+              <polyline points="21 16 21 21 16 21" />
+              <line x1="15" y1="15" x2="21" y2="21" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Convert Image</h3>
+          <p class="tool-desc">Convert between JPG, PNG, and WebP formats.</p>
+          <button class="btn-open-tool" onclick="openTool('convert-image')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="enhance-image" data-color="blue">
+          <div class="tool-icon-wrap" style="--accent:#2196F3; --accent-bg:#F0F7FF;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="5" />
+              <line x1="12" y1="1" x2="12" y2="3" />
+              <line x1="12" y1="21" x2="12" y2="23" />
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+              <line x1="1" y1="12" x2="3" y2="12" />
+              <line x1="21" y1="12" x2="23" y2="12" />
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Enhance Image</h3>
+          <p class="tool-desc">Adjust brightness, contrast, saturation &amp; sharpness.</p>
+          <button class="btn-open-tool" onclick="openTool('enhance-image')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="scan-enhance" data-color="violet">
+          <div class="tool-icon-wrap" style="--accent:#673AB7; --accent-bg:#F5F0FF;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+              <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+              <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+              <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+              <rect x="7" y="7" width="10" height="10" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Scan Enhance</h3>
+          <p class="tool-desc">Improve photographed document clarity &amp; readability.</p>
+          <button class="btn-open-tool" onclick="openTool('scan-enhance')">Open Tool</button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <p>Created with ❤️ by <a href="https://www.instagram.com/faiizanaly" target="_blank" rel="noopener noreferrer"
+          class="footer-link">Faizan Ali</a></p>
+    </footer>
+
+  </main>
+
+  <!-- ===================== TOOL WORKSPACE ===================== -->
+  <div id="toolWorkspace" class="tool-workspace" style="display:none;" role="main" aria-label="Tool workspace">
+
+    <!-- Tool Header -->
+    <div class="workspace-header">
+      <button class="btn-back" onclick="showHome()" aria-label="Back to home">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+        Back
+      </button>
+      <div class="workspace-title-area">
+        <div class="workspace-tool-icon" id="workspaceIcon"></div>
+        <h1 class="workspace-title" id="workspaceTitle">Tool Name</h1>
+      </div>
+    </div>
+
+    <!-- Tool Content — each tool renders here -->
+    <div class="workspace-body" id="workspaceBody"></div>
+
+  </div>
+
+  <!-- Load PDF libraries only when needed (loaded dynamically in script.js) -->
+  <script src="./script.js" defer></script>
+
+</body>
+
+</html>

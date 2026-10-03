@@ -1550,3 +1550,151 @@ ul {
   flex: 1;
   min-width: 70px;
 }
+
+/* ============================================================
+   COMPRESS PDF — TARGET REDUCTION SLIDER
+   ============================================================ */
+
+/* Header row: label on left, "40% smaller" badge on right */
+.compress-slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+/* The "40% smaller" pill badge */
+.compress-target-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: white;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* Track row: "0%" — slider — "80%" */
+.compress-slider-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.compress-slider-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 26px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* The range input itself */
+.compress-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border-color);
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+.compress-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--compress-accent, var(--brand-red));
+  box-shadow: 0 1px 6px rgba(0,0,0,0.2);
+  cursor: pointer;
+  border: 2px solid white;
+  transition: transform 0.1s;
+}
+
+.compress-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.compress-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--compress-accent, var(--brand-red));
+  border: 2px solid white;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.2);
+  cursor: pointer;
+}
+
+/* Hint text below the slider */
+.compress-method-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+  min-height: 18px;
+  transition: opacity 0.2s;
+}
+
+/* Live stats panel below the slider */
+.compress-live-stats {
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-top: 16px;
+}
+
+/* Four stat blocks in a row */
+.compress-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  justify-content: center;
+  transition: opacity 0.2s;
+}
+
+.compress-stat-block {
+  text-align: center;
+  min-width: 80px;
+}
+
+.compress-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.compress-stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Processing indicator inside the stats panel */
+.compress-processing {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding-top: 10px;
+}
+
+@media (max-width: 480px) {
+  .compress-stats-row {
+    gap: 12px 16px;
+  }
+  .compress-stat-value {
+    font-size: 14px;
+  }
+  .compress-slider-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}

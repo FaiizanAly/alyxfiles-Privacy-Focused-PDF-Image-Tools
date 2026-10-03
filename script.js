@@ -1636,15 +1636,20 @@ async function processRotatePdf() {
 
 /* ============================================================
    TOOL: COMPRESS PDF
-   Quality control + live actual output size display.
-   The displayed size comes from the real generated Blob — never faked.
-   The Download button downloads the exact same Blob shown in the stats.
+   Target reduction slider (0% → 80%).
+   The slider is the user's GOAL — not a guarantee.
+   Two real compression methods are used depending on target:
+     • 0-25%  → structural repack via pdf-lib (lossless, fast)
+     • 25-80% → rasterize pages to JPEG via pdf.js and rebuild
+                (lossy, actually achieves significant reduction)
+   The displayed size is ALWAYS the real Blob.size — never faked.
+   Download uses the EXACT same blob shown in the stats.
    ============================================================ */
 
 function renderCompressPdf(container) {
   const accent = toolState.config.accent;
   container.innerHTML = `
-    <div class="info-box">PDF compression re-saves the document to reduce its size. The size shown is always the actual output — never estimated.</div>
+    <div class="info-box">Set your target reduction. We'll compress as close to that goal as practical. The displayed size is always the real output — never estimated.</div>
     <div class="tool-upload" id="compressPdfDrop" tabindex="0" role="button" aria-label="Upload PDF file">
       <span class="upload-label">📄 Select PDF File</span>
       <p>Drag &amp; drop your PDF here, or click to browse</p>
@@ -1654,35 +1659,49 @@ function renderCompressPdf(container) {
 
     <div class="tool-options" id="compressPdfOptions" style="display:none;">
       <div class="option-group">
-        <label class="option-label">Compression Level</label>
-        <div class="compress-levels">
-          <button class="btn-choice" onclick="setCompressPdfLevel(this,'low')">Low</button>
-          <button class="btn-choice active" onclick="setCompressPdfLevel(this,'medium')">Medium</button>
-          <button class="btn-choice" onclick="setCompressPdfLevel(this,'high')">High</button>
-          <button class="btn-choice" onclick="setCompressPdfLevel(this,'maximum')">Maximum</button>
+        <div class="compress-slider-header">
+          <label class="option-label" for="compressSlider">Target Reduction</label>
+          <span class="compress-target-badge" id="compressTargetBadge" style="background:${accent};">40% smaller</span>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin-top:6px;" id="compressPdfLevelHint">
-          Medium — balanced size and quality
+        <div class="compress-slider-track">
+          <span class="compress-slider-label">0%</span>
+          <input
+            type="range"
+            id="compressSlider"
+            class="compress-slider"
+            min="0" max="80" step="5" value="40"
+            oninput="onCompressSliderInput(this.value)"
+            style="--compress-accent:${accent};"
+          />
+          <span class="compress-slider-label">80%</span>
+        </div>
+        <p class="compress-method-hint" id="compressMethodHint">
+          Structural repack + image optimisation
         </p>
       </div>
 
-      <div id="compressPdfLiveStats" style="background:var(--bg-main);border:1px solid var(--border-color);border-radius:10px;padding:14px 16px;">
-        <div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;" id="compressPdfStatsInner">
-          <div style="text-align:center;">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:3px;">Original</div>
-            <div style="font-size:18px;font-weight:700;" id="compressOrigSize">—</div>
+      <div class="compress-live-stats" id="compressPdfLiveStats">
+        <div class="compress-stats-row" id="compressPdfStatsInner">
+          <div class="compress-stat-block">
+            <div class="compress-stat-label">Original</div>
+            <div class="compress-stat-value" id="compressOrigSize">—</div>
           </div>
-          <div style="text-align:center;">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:3px;">Output</div>
-            <div style="font-size:18px;font-weight:700;" id="compressOutSize">—</div>
+          <div class="compress-stat-block">
+            <div class="compress-stat-label">Target</div>
+            <div class="compress-stat-value" id="compressTargetSize" style="color:var(--text-secondary);">—</div>
           </div>
-          <div style="text-align:center;">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:3px;">Reduction</div>
-            <div style="font-size:18px;font-weight:700;color:#2E7D32;" id="compressReduction">—</div>
+          <div class="compress-stat-block">
+            <div class="compress-stat-label">Actual Output</div>
+            <div class="compress-stat-value" id="compressOutSize">—</div>
+          </div>
+          <div class="compress-stat-block">
+            <div class="compress-stat-label">Actual Reduction</div>
+            <div class="compress-stat-value" id="compressReduction" style="color:#2E7D32;">—</div>
           </div>
         </div>
-        <div id="compressPdfProcessing" style="text-align:center;font-size:13px;color:var(--text-secondary);display:none;">
-          <span>Processing preview…</span>
+        <div class="compress-processing" id="compressPdfProcessing" style="display:none;">
+          <div class="spinner" style="width:18px;height:18px;margin:0 auto 6px;"></div>
+          <span id="compressPdfProcessingText">Processing…</span>
         </div>
       </div>
     </div>
@@ -1692,10 +1711,11 @@ function renderCompressPdf(container) {
     </button>
     <div id="compressPdfResult"></div>`;
 
-  // Track the current compression level and its generated blob
-  toolState.compressPdfLevel = 'medium';
-  toolState.compressedPdfBlob = null;      // The blob from the last preview generation
-  toolState.compressPdfDebounce = null;    // Debounce timer for slider changes
+  // State: target percentage (0-80) and the last generated blob
+  toolState.compressPdfTarget = 40;          // slider value (%)
+  toolState.compressedPdfBlob = null;        // exact blob to download
+  toolState.compressPdfDebounce = null;      // debounce timer ID
+  toolState.compressPdfFile = null;
 
   setupToolDropzone('compressPdfDrop', 'compressPdfInput', 'pdf', false, async function (files) {
     toolState.compressPdfFile = files[0];
@@ -1704,90 +1724,185 @@ function renderCompressPdf(container) {
       `<div class="file-item"><span class="file-item-icon">📄</span>
        <span class="file-item-name">${files[0].name}</span>
        <span class="file-item-size">${formatFileSize(files[0].size)}</span></div>`;
+
+    // Show original size and compute target size estimate for display
     document.getElementById('compressOrigSize').textContent = formatFileSize(files[0].size);
-    // Generate the initial preview immediately
+    updateCompressTargetDisplay(toolState.compressPdfTarget);
+
+    // Run initial compression immediately
     await runCompressPdfPreview();
   });
 }
 
-// Map compression level names to options
-function getCompressPdfOptions(level) {
-  // We use pdf-lib's save() with useObjectStreams for all levels.
-  // For higher compression we also remove metadata and flatten structures.
-  // Note: client-side JS can only achieve structural compression, not lossy image compression.
-  switch (level) {
-    case 'low':     return { useObjectStreams: false, addDefaultPage: false };
-    case 'medium':  return { useObjectStreams: true,  addDefaultPage: false };
-    case 'high':    return { useObjectStreams: true,  addDefaultPage: false, objectsPerTick: 50 };
-    case 'maximum': return { useObjectStreams: true,  addDefaultPage: false, objectsPerTick: 20 };
-    default:        return { useObjectStreams: true,  addDefaultPage: false };
+// Called on every slider move — updates the label and debounces the heavy processing
+function onCompressSliderInput(value) {
+  const target = parseInt(value);
+  toolState.compressPdfTarget = target;
+  updateCompressTargetDisplay(target);
+
+  // Debounce: wait 600ms after user stops dragging before processing
+  clearTimeout(toolState.compressPdfDebounce);
+  toolState.compressPdfDebounce = setTimeout(function () {
+    runCompressPdfPreview();
+  }, 600);
+}
+
+// Update the badge label and "target size" stat — these update instantly on drag (no processing)
+function updateCompressTargetDisplay(target) {
+  const badge = document.getElementById('compressTargetBadge');
+  if (badge) badge.textContent = target + '% smaller';
+
+  // Show what the file WOULD be at the target — clearly labelled as a goal, not a result
+  const file = toolState.compressPdfFile;
+  if (file) {
+    const targetBytes = file.size * (1 - target / 100);
+    const targetEl = document.getElementById('compressTargetSize');
+    if (targetEl) targetEl.textContent = '≈ ' + formatFileSize(targetBytes) + ' (goal)';
+  }
+
+  // Update the method hint based on target
+  const hintEl = document.getElementById('compressMethodHint');
+  if (hintEl) {
+    if (target <= 10) {
+      hintEl.textContent = 'Structural repack only — minimal visual change';
+    } else if (target <= 25) {
+      hintEl.textContent = 'Structural repack — lossless, fast';
+    } else if (target <= 50) {
+      hintEl.textContent = 'Image optimisation — slight quality reduction';
+    } else {
+      hintEl.textContent = 'Aggressive image optimisation — noticeable quality reduction';
+    }
   }
 }
 
-const compressPdfLevelHints = {
-  'low':     'Low — minimal processing, closest to original',
-  'medium':  'Medium — balanced size and quality',
-  'high':    'High — more aggressive restructuring',
-  'maximum': 'Maximum — most aggressive, may take longer'
-};
-
-function setCompressPdfLevel(button, level) {
-  document.querySelectorAll('.compress-levels .btn-choice').forEach(function (b) { b.classList.remove('active'); });
-  button.classList.add('active');
-  toolState.compressPdfLevel = level;
-
-  const hintEl = document.getElementById('compressPdfLevelHint');
-  if (hintEl) hintEl.textContent = compressPdfLevelHints[level] || '';
-
-  // Run a new preview with the selected level
-  runCompressPdfPreview();
+// Map target percentage (0-80) to JPEG quality (0.0-1.0) for rasterization mode.
+// Lower target → higher quality JPEG. Higher target → more compression.
+function targetToJpegQuality(target) {
+  // target 25 → quality 0.92 (near-lossless)
+  // target 40 → quality 0.75
+  // target 60 → quality 0.55
+  // target 80 → quality 0.30
+  const quality = 1.0 - (target - 25) / 55 * 0.70;
+  return Math.max(0.20, Math.min(0.95, quality));
 }
 
-// Generate the actual compressed PDF blob and update the live size display.
-// This is the ONLY place where the blob is generated. Download uses this exact blob.
+// THE ONLY PLACE that generates the output blob.
+// Uses two strategies:
+//   target 0-25%  → structural repack with pdf-lib (lossless)
+//   target 25-80% → rasterize each page to JPEG, rebuild with pdf-lib
 async function runCompressPdfPreview() {
   const file = toolState.compressPdfFile;
   if (!file) return;
 
-  // Show processing indicator
+  const target = toolState.compressPdfTarget;
+
   const processingEl = document.getElementById('compressPdfProcessing');
+  const processingText = document.getElementById('compressPdfProcessingText');
   const statsInner = document.getElementById('compressPdfStatsInner');
   const btn = document.getElementById('compressPdfBtn');
 
+  // Show processing state
   if (processingEl) processingEl.style.display = 'block';
-  if (statsInner) statsInner.style.opacity = '0.4';
+  if (statsInner) statsInner.style.opacity = '0.35';
   if (btn) btn.disabled = true;
   toolState.compressedPdfBlob = null;
 
   try {
-    const PDFLib = await loadPdfLib();
-    const { PDFDocument } = PDFLib;
+    let blob;
 
-    const arrayBuffer = await readFileAsArrayBuffer(file);
-    let pdfDoc;
-    try {
-      pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true, updateMetadata: false });
-    } catch (e) {
-      throw new Error('Unable to open this PDF. It may be password-protected or corrupted.');
+    if (target <= 25) {
+      // ── STRATEGY A: Structural repack (lossless) ──────────────────
+      // pdf-lib re-serialises the PDF with object streams enabled.
+      // This removes redundant objects, compresses cross-reference tables,
+      // and can reduce file size noticeably for text-heavy PDFs.
+      if (processingText) processingText.textContent = 'Repacking PDF structure…';
+
+      const PDFLib = await loadPdfLib();
+      const { PDFDocument } = PDFLib;
+
+      const arrayBuffer = await readFileAsArrayBuffer(file);
+      let pdfDoc;
+      try {
+        pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true, updateMetadata: false });
+      } catch (e) {
+        throw new Error('Unable to open this PDF. It may be password-protected or corrupted.');
+      }
+
+      const useStreams = target > 10; // 0-10%: minimal; 10-25%: use streams
+      const pdfBytes = await pdfDoc.save({ useObjectStreams: useStreams, addDefaultPage: false });
+      blob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+    } else {
+      // ── STRATEGY B: Rasterize pages to JPEG, rebuild PDF ──────────
+      // Each page is rendered to a canvas via pdf.js then encoded as JPEG.
+      // The JPEG quality is derived from the target percentage.
+      // This is the only way to achieve large reductions client-side.
+      // Trade-off: text may appear slightly softer at very low JPEG quality.
+      const jpegQuality = targetToJpegQuality(target);
+      if (processingText) processingText.textContent = 'Optimising images (quality ' + Math.round(jpegQuality * 100) + '%)…';
+
+      const [pdfjsLib, PDFLib] = await Promise.all([loadPdfJs(), loadPdfLib()]);
+      const { PDFDocument } = PDFLib;
+
+      // Load with pdf.js for rendering
+      const arrayBuffer = await readFileAsArrayBuffer(file);
+      const pdfJsDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+      const pageCount = pdfJsDoc.numPages;
+
+      // Create a new blank PDF document to write into
+      const newPdf = await PDFDocument.create();
+
+      // Render each page as JPEG and embed it
+      for (let i = 0; i < pageCount; i++) {
+        if (processingText) {
+          processingText.textContent = 'Optimising page ' + (i + 1) + ' of ' + pageCount + '…';
+        }
+
+        const page = await pdfJsDoc.getPage(i + 1);
+        // Use scale 1.5 — good balance of quality and file size
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+
+        // Encode the canvas as JPEG at the computed quality
+        const jpegDataUrl = canvas.toDataURL('image/jpeg', jpegQuality);
+        // Strip the data URL header to get raw base64
+        const base64 = jpegDataUrl.split(',')[1];
+        const binaryStr = atob(base64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let b = 0; b < binaryStr.length; b++) {
+          bytes[b] = binaryStr.charCodeAt(b);
+        }
+
+        // Embed the JPEG image into the new PDF
+        const jpegImage = await newPdf.embedJpg(bytes);
+        const pdfPage = newPdf.addPage([viewport.width, viewport.height]);
+        pdfPage.drawImage(jpegImage, {
+          x: 0, y: 0,
+          width: viewport.width,
+          height: viewport.height
+        });
+      }
+
+      const pdfBytes = await newPdf.save({ useObjectStreams: true });
+      blob = new Blob([pdfBytes], { type: 'application/pdf' });
     }
 
-    const saveOptions = getCompressPdfOptions(toolState.compressPdfLevel);
-    const pdfBytes = await pdfDoc.save(saveOptions);
-
-    // Store the generated blob so Download uses this EXACT blob
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    // Store for download — THIS IS THE EXACT BLOB the Download button will use
     toolState.compressedPdfBlob = blob;
 
-    // Update live stats with the ACTUAL blob size
+    // Update stats with REAL numbers from the actual blob
     const originalSize = file.size;
     const outputSize = blob.size;
     const savedBytes = originalSize - outputSize;
-    const reduction = ((savedBytes / originalSize) * 100).toFixed(1);
+    const actualReduction = ((savedBytes / originalSize) * 100).toFixed(1);
 
     document.getElementById('compressOutSize').textContent = formatFileSize(outputSize);
     const reductionEl = document.getElementById('compressReduction');
     if (savedBytes > 0) {
-      reductionEl.textContent = '−' + reduction + '%';
+      reductionEl.textContent = '−' + actualReduction + '%';
       reductionEl.style.color = '#2E7D32';
     } else {
       reductionEl.textContent = 'No reduction';
@@ -1799,65 +1914,70 @@ async function runCompressPdfPreview() {
   } catch (error) {
     console.error('Compress PDF preview error:', error);
     const resultDiv = document.getElementById('compressPdfResult');
-    showError(resultDiv, error.message || 'Something went wrong. Please try again.');
+    if (resultDiv) showError(resultDiv, error.message || 'Something went wrong. Please try again.');
+    if (btn) btn.disabled = false;
   } finally {
     if (processingEl) processingEl.style.display = 'none';
     if (statsInner) statsInner.style.opacity = '1';
   }
 }
 
-// Download the EXACT blob that was generated in the preview — no second processing
+// Download the EXACT blob generated in runCompressPdfPreview — no re-processing
 function downloadCompressedPdf() {
   const blob = toolState.compressedPdfBlob;
   if (!blob) {
-    alert('Please wait for the preview to finish processing.');
+    alert('Please wait for processing to finish before downloading.');
     return;
   }
 
   const file = toolState.compressPdfFile;
   const baseName = getBaseName(file.name);
-  processedBlob = blob; // Set it so handleDownload works if called
+  processedBlob = blob;
   downloadBlob(blob, baseName + '-compressed.pdf');
 
-  // Show a small result confirmation
+  // Confirm the download with a result panel showing target vs actual
   const resultDiv = document.getElementById('compressPdfResult');
+  if (!resultDiv) return;
+
   const originalSize = file.size;
   const outputSize = blob.size;
   const savedBytes = originalSize - outputSize;
-  const reduction = ((savedBytes / originalSize) * 100).toFixed(1);
-
-  let stats;
-  if (savedBytes > 0) {
-    stats = {
-      'Original': formatFileSize(originalSize),
-      'Compressed': formatFileSize(outputSize),
-      'Saved': formatFileSize(savedBytes),
-      'Reduction': reduction + '%'
-    };
-  } else {
-    stats = {
-      'Original': formatFileSize(originalSize),
-      'Output': formatFileSize(outputSize),
-      'Note': 'No significant size reduction for this file'
-    };
-  }
-
-  let statsHTML = '<div class="result-stats">';
-  for (const [label, value] of Object.entries(stats)) {
-    const isSaved = label.toLowerCase().includes('saved') || label.toLowerCase().includes('reduction');
-    statsHTML += `<div class="result-stat">
-      <div class="result-stat-label">${label}</div>
-      <div class="result-stat-value ${isSaved ? 'saved' : ''}">${value}</div>
-    </div>`;
-  }
-  statsHTML += '</div>';
-
+  const actualReduction = ((savedBytes / originalSize) * 100).toFixed(1);
+  const target = toolState.compressPdfTarget;
   const accent = toolState.config.accent;
+
+  let reductionNote = '';
+  if (savedBytes <= 0) {
+    reductionNote = '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">This file could not be reduced further. The output is the same size as the original.</p>';
+  }
+
   resultDiv.innerHTML = `
     <div class="result-area">
       <div class="result-success-icon">✅</div>
       <h2 class="result-title">Downloaded!</h2>
-      ${statsHTML}
+      ${reductionNote}
+      <div class="result-stats">
+        <div class="result-stat">
+          <div class="result-stat-label">Target</div>
+          <div class="result-stat-value">${target}%</div>
+        </div>
+        <div class="result-stat">
+          <div class="result-stat-label">Actual Reduction</div>
+          <div class="result-stat-value ${savedBytes > 0 ? 'saved' : ''}">${savedBytes > 0 ? '−' + actualReduction + '%' : 'None'}</div>
+        </div>
+        <div class="result-stat">
+          <div class="result-stat-label">Original</div>
+          <div class="result-stat-value">${formatFileSize(originalSize)}</div>
+        </div>
+        <div class="result-stat">
+          <div class="result-stat-label">Compressed</div>
+          <div class="result-stat-value">${formatFileSize(outputSize)}</div>
+        </div>
+        ${savedBytes > 0 ? `<div class="result-stat">
+          <div class="result-stat-label">Saved</div>
+          <div class="result-stat-value saved">${formatFileSize(savedBytes)}</div>
+        </div>` : ''}
+      </div>
       <button class="btn-download" onclick="downloadCompressedPdf()" style="background:${accent};">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
           stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1871,6 +1991,7 @@ function downloadCompressedPdf() {
 
 /* ============================================================
    TOOL: PDF → IMAGE
+
    Converts each PDF page to a JPG or PNG image
    ============================================================ */
 

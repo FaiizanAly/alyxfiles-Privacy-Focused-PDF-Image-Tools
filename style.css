@@ -1413,3 +1413,140 @@ ul {
     gap: 8px;
   }
 }
+
+
+/* ============================================================
+   MERGE PDF — ORDERED FILE LIST
+   The new accumulate-files UI for Merge PDF
+   ============================================================ */
+
+/* The ordered <ul> list of selected PDFs */
+.merge-file-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Each PDF row in the merge list */
+.merge-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: 13.5px;
+  transition: background 0.15s;
+}
+
+/* Order number badge (1, 2, 3 …) */
+.merge-file-order {
+  min-width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tool-accent, var(--brand-red));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Up / down reorder buttons */
+.merge-btn-order {
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.merge-btn-order:hover:not([disabled]) {
+  color: var(--tool-accent, var(--brand-red));
+  background: var(--tool-accent-bg, #FFF5F5);
+}
+
+.merge-btn-order[disabled] {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* × remove button */
+.merge-btn-remove {
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.merge-btn-remove:hover {
+  color: #E53935;
+  background: #FFF5F5;
+}
+
+.merge-file-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* "Add More Files" button */
+.btn-add-more {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--tool-accent, var(--brand-red));
+  color: var(--tool-accent, var(--brand-red));
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-add-more:hover {
+  background: var(--tool-accent, var(--brand-red));
+  color: white;
+}
+
+/* "Clear All" button */
+.btn-clear-all-files {
+  font-size: 13px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border-color);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-clear-all-files:hover {
+  background: var(--bg-main);
+  color: #E53935;
+  border-color: #E53935;
+}
+
+/* ============================================================
+   COMPRESS PDF — LEVEL BUTTONS
+   ============================================================ */
+.compress-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compress-levels .btn-choice {
+  flex: 1;
+  min-width: 70px;
+}

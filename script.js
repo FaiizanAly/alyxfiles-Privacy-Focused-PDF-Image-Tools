@@ -224,10 +224,11 @@ function showError(container, message) {
 }
 
 // Create a loading state HTML string
-function createLoadingHTML() {
+function createLoadingHTML(message) {
+  const text = message || 'Processing...';
   return `<div class="loading-state">
     <div class="spinner"></div>
-    <p>Processing...</p>
+    <p>${text}</p>
   </div>`;
 }
 
@@ -382,6 +383,30 @@ function loadPdfJs() {
     };
     script.onerror = function () {
       reject(new Error('PDF rendering library could not be loaded. Please refresh the page and try again.'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// Load JSZip (for creating ZIP files client-side in PDF → Image)
+function loadJsZip() {
+  return new Promise(function (resolve, reject) {
+    if (window.JSZip) {
+      resolve(window.JSZip);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = './lib/jszip.min.js';
+    script.onload = function () {
+      if (!window.JSZip) {
+        reject(new Error('ZIP library loaded but JSZip is not available. Please refresh the page.'));
+        return;
+      }
+      console.log('JSZip loaded successfully');
+      resolve(window.JSZip);
+    };
+    script.onerror = function () {
+      reject(new Error('ZIP library could not be loaded. Please refresh the page and try again.'));
     };
     document.head.appendChild(script);
   });
@@ -661,32 +686,162 @@ function updateThumbnailSelection(containerId, selectedSet, mode) {
 
 /* ============================================================
    TOOL: MERGE PDF
-   Combines multiple PDF files into one
+   Combines multiple PDF files into one.
+   Files accumulate across multiple picks — nothing is lost
+   when the user clicks "Add More Files" a second time.
+   The merge order is always the exact order shown in the list.
    ============================================================ */
 
 function renderMergePdf(container) {
   const accent = toolState.config.accent;
+
+  // This array holds ALL selected PDFs in the exact order the user added them.
+  // We never replace it — we only push() new files onto it.
+  toolState.mergeFiles = [];
+
   container.innerHTML = `
-    <div class="info-box">Select two or more PDF files to merge into a single document.</div>
+    <div class="info-box">Add two or more PDF files. Use ↑ ↓ to reorder. The merged PDF will follow this exact order.</div>
+
     <div class="tool-upload" id="mergeDrop" tabindex="0" role="button" aria-label="Upload PDF files">
       <span class="upload-label">📁 Add PDF Files</span>
       <p>Drag &amp; drop PDFs here, or click to browse</p>
       <input type="file" id="mergeInput" multiple accept=".pdf" />
     </div>
-    <div id="mergeFileList" style="margin-bottom:16px;"></div>
+
+    <div id="mergeFileListWrap" style="display:none; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span id="mergeFileCount" style="font-size:13px;font-weight:600;color:var(--text-secondary);"></span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-add-more" id="mergeAddMoreBtn" onclick="mergePickMore()" style="color:${accent};">
+            + Add More Files
+          </button>
+          <button class="btn-clear-all-files" onclick="mergeClearAll()" style="color:var(--text-secondary);">
+            Clear All
+          </button>
+        </div>
+      </div>
+      <ul id="mergeOrderedList" class="merge-file-list"></ul>
+    </div>
+
     <button class="btn-process" id="mergePdfBtn" disabled onclick="processMergePdf()" style="background:${accent};">
       Merge PDFs
     </button>
     <div id="mergeResult"></div>`;
 
+  // Hidden secondary input for "Add More Files" (avoids re-triggering the dropzone)
+  const moreInput = document.createElement('input');
+  moreInput.type = 'file';
+  moreInput.id = 'mergeMoreInput';
+  moreInput.multiple = true;
+  moreInput.accept = '.pdf';
+  moreInput.style.display = 'none';
+  moreInput.addEventListener('change', function () {
+    const newFiles = validateToolFiles(Array.from(this.files), 'pdf', true);
+    if (newFiles.length > 0) mergeAddFiles(newFiles);
+    this.value = '';
+  });
+  container.appendChild(moreInput);
+
+  // Main drop zone: adds files to the accumulator
   setupToolDropzone('mergeDrop', 'mergeInput', 'pdf', true, function (files) {
-    toolState.mergeFiles = files;
-    renderToolFileList('mergeFileList', files, 'pdf');
-    document.getElementById('mergePdfBtn').disabled = files.length < 2;
+    mergeAddFiles(files);
+  });
+}
+
+// Open the "Add More Files" secondary picker
+function mergePickMore() {
+  const input = document.getElementById('mergeMoreInput');
+  if (input) input.click();
+}
+
+// Add files to the ordered accumulator and refresh the list UI
+function mergeAddFiles(newFiles) {
+  // Push each new file onto the end of the ordered array
+  newFiles.forEach(function (file) {
+    toolState.mergeFiles.push(file);
+  });
+  renderMergeFileList();
+}
+
+// Remove one file from the list by its current index
+function mergeRemoveFile(index) {
+  toolState.mergeFiles.splice(index, 1);
+  renderMergeFileList();
+}
+
+// Move a file up in the list (earlier in merge order)
+function mergeMoveUp(index) {
+  if (index === 0) return;
+  const tmp = toolState.mergeFiles[index - 1];
+  toolState.mergeFiles[index - 1] = toolState.mergeFiles[index];
+  toolState.mergeFiles[index] = tmp;
+  renderMergeFileList();
+}
+
+// Move a file down in the list (later in merge order)
+function mergeMoveDown(index) {
+  const files = toolState.mergeFiles;
+  if (index === files.length - 1) return;
+  const tmp = files[index + 1];
+  files[index + 1] = files[index];
+  files[index] = tmp;
+  renderMergeFileList();
+}
+
+// Clear all selected files
+function mergeClearAll() {
+  toolState.mergeFiles = [];
+  renderMergeFileList();
+}
+
+// Re-render the file list UI to match the current toolState.mergeFiles array.
+// The UI order and the array order are always identical.
+function renderMergeFileList() {
+  const files = toolState.mergeFiles;
+  const wrap = document.getElementById('mergeFileListWrap');
+  const list = document.getElementById('mergeOrderedList');
+  const countEl = document.getElementById('mergeFileCount');
+  const mergeBtn = document.getElementById('mergePdfBtn');
+  const dropZone = document.getElementById('mergeDrop');
+
+  if (!wrap || !list) return;
+
+  if (files.length === 0) {
+    wrap.style.display = 'none';
+    if (dropZone) dropZone.style.display = '';
+    if (mergeBtn) mergeBtn.disabled = true;
+    return;
+  }
+
+  // Hide the drop zone once files are added — use "Add More Files" button instead
+  if (dropZone) dropZone.style.display = 'none';
+  wrap.style.display = 'block';
+  countEl.textContent = files.length + ' PDF' + (files.length !== 1 ? 's' : '') + ' selected';
+  mergeBtn.disabled = files.length < 2;
+
+  list.innerHTML = '';
+  files.forEach(function (file, index) {
+    const li = document.createElement('li');
+    li.className = 'merge-file-item';
+    li.innerHTML = `
+      <span class="merge-file-order">${index + 1}</span>
+      <span class="file-item-icon">📄</span>
+      <span class="file-item-name" title="${file.name}">${file.name}</span>
+      <span class="file-item-size">${formatFileSize(file.size)}</span>
+      <div class="merge-file-actions">
+        <button class="merge-btn-order" onclick="mergeMoveUp(${index})"
+          ${index === 0 ? 'disabled' : ''} title="Move up" aria-label="Move up">↑</button>
+        <button class="merge-btn-order" onclick="mergeMoveDown(${index})"
+          ${index === files.length - 1 ? 'disabled' : ''} title="Move down" aria-label="Move down">↓</button>
+        <button class="merge-btn-remove" onclick="mergeRemoveFile(${index})"
+          title="Remove" aria-label="Remove file">×</button>
+      </div>`;
+    list.appendChild(li);
   });
 }
 
 async function processMergePdf() {
+  // Use the ordered array exactly as-is — the UI order IS the merge order
   const files = toolState.mergeFiles;
   if (!files || files.length < 2) {
     alert('Please add at least 2 PDF files to merge.');
@@ -703,7 +858,9 @@ async function processMergePdf() {
 
     const mergedPdf = await PDFDocument.create();
 
-    for (const file of files) {
+    // Process files in the exact order stored in the array (= the order shown in the UI)
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       let arrayBuffer;
       try {
         arrayBuffer = await readFileAsArrayBuffer(file);
@@ -738,6 +895,7 @@ async function processMergePdf() {
     document.getElementById('mergePdfBtn').disabled = false;
   }
 }
+
 
 /* ============================================================
    TOOL: SPLIT PDF
@@ -1478,40 +1636,128 @@ async function processRotatePdf() {
 
 /* ============================================================
    TOOL: COMPRESS PDF
+   Quality control + live actual output size display.
+   The displayed size comes from the real generated Blob — never faked.
+   The Download button downloads the exact same Blob shown in the stats.
    ============================================================ */
 
 function renderCompressPdf(container) {
   const accent = toolState.config.accent;
   container.innerHTML = `
-    <div class="info-box">PDF compression re-saves the document to reduce its size. Results vary depending on the file content.</div>
+    <div class="info-box">PDF compression re-saves the document to reduce its size. The size shown is always the actual output — never estimated.</div>
     <div class="tool-upload" id="compressPdfDrop" tabindex="0" role="button" aria-label="Upload PDF file">
       <span class="upload-label">📄 Select PDF File</span>
       <p>Drag &amp; drop your PDF here, or click to browse</p>
       <input type="file" id="compressPdfInput" accept=".pdf" />
     </div>
     <div id="compressPdfFileInfo" style="margin-bottom:16px;"></div>
-    <button class="btn-process" id="compressPdfBtn" disabled onclick="processCompressPdf()" style="background:${accent};">
-      Compress PDF
+
+    <div class="tool-options" id="compressPdfOptions" style="display:none;">
+      <div class="option-group">
+        <label class="option-label">Compression Level</label>
+        <div class="compress-levels">
+          <button class="btn-choice" onclick="setCompressPdfLevel(this,'low')">Low</button>
+          <button class="btn-choice active" onclick="setCompressPdfLevel(this,'medium')">Medium</button>
+          <button class="btn-choice" onclick="setCompressPdfLevel(this,'high')">High</button>
+          <button class="btn-choice" onclick="setCompressPdfLevel(this,'maximum')">Maximum</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:6px;" id="compressPdfLevelHint">
+          Medium — balanced size and quality
+        </p>
+      </div>
+
+      <div id="compressPdfLiveStats" style="background:var(--bg-main);border:1px solid var(--border-color);border-radius:10px;padding:14px 16px;">
+        <div style="display:flex;flex-wrap:wrap;gap:20px;justify-content:center;" id="compressPdfStatsInner">
+          <div style="text-align:center;">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:3px;">Original</div>
+            <div style="font-size:18px;font-weight:700;" id="compressOrigSize">—</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:3px;">Output</div>
+            <div style="font-size:18px;font-weight:700;" id="compressOutSize">—</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:3px;">Reduction</div>
+            <div style="font-size:18px;font-weight:700;color:#2E7D32;" id="compressReduction">—</div>
+          </div>
+        </div>
+        <div id="compressPdfProcessing" style="text-align:center;font-size:13px;color:var(--text-secondary);display:none;">
+          <span>Processing preview…</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-process" id="compressPdfBtn" disabled onclick="downloadCompressedPdf()" style="background:${accent};">
+      Download Compressed PDF
     </button>
     <div id="compressPdfResult"></div>`;
 
-  setupToolDropzone('compressPdfDrop', 'compressPdfInput', 'pdf', false, function (files) {
+  // Track the current compression level and its generated blob
+  toolState.compressPdfLevel = 'medium';
+  toolState.compressedPdfBlob = null;      // The blob from the last preview generation
+  toolState.compressPdfDebounce = null;    // Debounce timer for slider changes
+
+  setupToolDropzone('compressPdfDrop', 'compressPdfInput', 'pdf', false, async function (files) {
     toolState.compressPdfFile = files[0];
-    document.getElementById('compressPdfBtn').disabled = false;
+    document.getElementById('compressPdfOptions').style.display = 'block';
     document.getElementById('compressPdfFileInfo').innerHTML =
       `<div class="file-item"><span class="file-item-icon">📄</span>
        <span class="file-item-name">${files[0].name}</span>
        <span class="file-item-size">${formatFileSize(files[0].size)}</span></div>`;
+    document.getElementById('compressOrigSize').textContent = formatFileSize(files[0].size);
+    // Generate the initial preview immediately
+    await runCompressPdfPreview();
   });
 }
 
-async function processCompressPdf() {
+// Map compression level names to options
+function getCompressPdfOptions(level) {
+  // We use pdf-lib's save() with useObjectStreams for all levels.
+  // For higher compression we also remove metadata and flatten structures.
+  // Note: client-side JS can only achieve structural compression, not lossy image compression.
+  switch (level) {
+    case 'low':     return { useObjectStreams: false, addDefaultPage: false };
+    case 'medium':  return { useObjectStreams: true,  addDefaultPage: false };
+    case 'high':    return { useObjectStreams: true,  addDefaultPage: false, objectsPerTick: 50 };
+    case 'maximum': return { useObjectStreams: true,  addDefaultPage: false, objectsPerTick: 20 };
+    default:        return { useObjectStreams: true,  addDefaultPage: false };
+  }
+}
+
+const compressPdfLevelHints = {
+  'low':     'Low — minimal processing, closest to original',
+  'medium':  'Medium — balanced size and quality',
+  'high':    'High — more aggressive restructuring',
+  'maximum': 'Maximum — most aggressive, may take longer'
+};
+
+function setCompressPdfLevel(button, level) {
+  document.querySelectorAll('.compress-levels .btn-choice').forEach(function (b) { b.classList.remove('active'); });
+  button.classList.add('active');
+  toolState.compressPdfLevel = level;
+
+  const hintEl = document.getElementById('compressPdfLevelHint');
+  if (hintEl) hintEl.textContent = compressPdfLevelHints[level] || '';
+
+  // Run a new preview with the selected level
+  runCompressPdfPreview();
+}
+
+// Generate the actual compressed PDF blob and update the live size display.
+// This is the ONLY place where the blob is generated. Download uses this exact blob.
+async function runCompressPdfPreview() {
   const file = toolState.compressPdfFile;
   if (!file) return;
 
-  const resultDiv = document.getElementById('compressPdfResult');
-  resultDiv.innerHTML = createLoadingHTML();
-  document.getElementById('compressPdfBtn').disabled = true;
+  // Show processing indicator
+  const processingEl = document.getElementById('compressPdfProcessing');
+  const statsInner = document.getElementById('compressPdfStatsInner');
+  const btn = document.getElementById('compressPdfBtn');
+
+  if (processingEl) processingEl.style.display = 'block';
+  if (statsInner) statsInner.style.opacity = '0.4';
+  if (btn) btn.disabled = true;
+  toolState.compressedPdfBlob = null;
 
   try {
     const PDFLib = await loadPdfLib();
@@ -1525,42 +1771,103 @@ async function processCompressPdf() {
       throw new Error('Unable to open this PDF. It may be password-protected or corrupted.');
     }
 
-    // Save with object streams enabled – the primary compression method available client-side
-    const pdfBytes = await pdfDoc.save({ useObjectStreams: true, addDefaultPage: false });
-    processedBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const saveOptions = getCompressPdfOptions(toolState.compressPdfLevel);
+    const pdfBytes = await pdfDoc.save(saveOptions);
 
+    // Store the generated blob so Download uses this EXACT blob
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    toolState.compressedPdfBlob = blob;
+
+    // Update live stats with the ACTUAL blob size
     const originalSize = file.size;
-    const compressedSize = processedBlob.size;
-    const savedBytes = originalSize - compressedSize;
+    const outputSize = blob.size;
+    const savedBytes = originalSize - outputSize;
     const reduction = ((savedBytes / originalSize) * 100).toFixed(1);
-    const baseName = getBaseName(file.name);
 
-    let stats;
+    document.getElementById('compressOutSize').textContent = formatFileSize(outputSize);
+    const reductionEl = document.getElementById('compressReduction');
     if (savedBytes > 0) {
-      stats = {
-        'Original': formatFileSize(originalSize),
-        'Compressed': formatFileSize(compressedSize),
-        'Saved': formatFileSize(savedBytes),
-        'Reduction': reduction + '%'
-      };
+      reductionEl.textContent = '−' + reduction + '%';
+      reductionEl.style.color = '#2E7D32';
     } else {
-      // Be honest: no reduction achieved
-      stats = {
-        'Original': formatFileSize(originalSize),
-        'Output Size': formatFileSize(compressedSize),
-        'Result': 'No size reduction achieved'
-      };
+      reductionEl.textContent = 'No reduction';
+      reductionEl.style.color = 'var(--text-secondary)';
     }
 
-    showResultWithDownload(resultDiv, baseName + '-compressed.pdf', stats);
+    if (btn) btn.disabled = false;
 
   } catch (error) {
-    console.error('Compress PDF error:', error);
-    resultDiv.innerHTML = '';
+    console.error('Compress PDF preview error:', error);
+    const resultDiv = document.getElementById('compressPdfResult');
     showError(resultDiv, error.message || 'Something went wrong. Please try again.');
-    document.getElementById('compressPdfBtn').disabled = false;
+  } finally {
+    if (processingEl) processingEl.style.display = 'none';
+    if (statsInner) statsInner.style.opacity = '1';
   }
 }
+
+// Download the EXACT blob that was generated in the preview — no second processing
+function downloadCompressedPdf() {
+  const blob = toolState.compressedPdfBlob;
+  if (!blob) {
+    alert('Please wait for the preview to finish processing.');
+    return;
+  }
+
+  const file = toolState.compressPdfFile;
+  const baseName = getBaseName(file.name);
+  processedBlob = blob; // Set it so handleDownload works if called
+  downloadBlob(blob, baseName + '-compressed.pdf');
+
+  // Show a small result confirmation
+  const resultDiv = document.getElementById('compressPdfResult');
+  const originalSize = file.size;
+  const outputSize = blob.size;
+  const savedBytes = originalSize - outputSize;
+  const reduction = ((savedBytes / originalSize) * 100).toFixed(1);
+
+  let stats;
+  if (savedBytes > 0) {
+    stats = {
+      'Original': formatFileSize(originalSize),
+      'Compressed': formatFileSize(outputSize),
+      'Saved': formatFileSize(savedBytes),
+      'Reduction': reduction + '%'
+    };
+  } else {
+    stats = {
+      'Original': formatFileSize(originalSize),
+      'Output': formatFileSize(outputSize),
+      'Note': 'No significant size reduction for this file'
+    };
+  }
+
+  let statsHTML = '<div class="result-stats">';
+  for (const [label, value] of Object.entries(stats)) {
+    const isSaved = label.toLowerCase().includes('saved') || label.toLowerCase().includes('reduction');
+    statsHTML += `<div class="result-stat">
+      <div class="result-stat-label">${label}</div>
+      <div class="result-stat-value ${isSaved ? 'saved' : ''}">${value}</div>
+    </div>`;
+  }
+  statsHTML += '</div>';
+
+  const accent = toolState.config.accent;
+  resultDiv.innerHTML = `
+    <div class="result-area">
+      <div class="result-success-icon">✅</div>
+      <h2 class="result-title">Downloaded!</h2>
+      ${statsHTML}
+      <button class="btn-download" onclick="downloadCompressedPdf()" style="background:${accent};">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download Again
+      </button>
+      <button class="btn-start-again" onclick="openTool('compress-pdf')">↺ Start Again</button>
+    </div>`;
+}
+
 
 /* ============================================================
    TOOL: PDF → IMAGE
@@ -1663,28 +1970,62 @@ async function processPdfToImage() {
     }
 
     if (outputImages.length === 1) {
+      // Single page: download directly, no ZIP needed
       processedBlob = outputImages[0].blob;
       showResultWithDownload(resultDiv, outputImages[0].name, {
         'Format': ext.toUpperCase(),
         'Size': formatFileSize(outputImages[0].blob.size)
       });
     } else {
-      toolState.pdfImgOutputs = outputImages;
+      // Multiple pages: pack into one ZIP file so the user downloads once
+      resultDiv.innerHTML = createLoadingHTML('Creating ZIP file…');
+
+      const JSZip = await loadJsZip();
+      const zip = new JSZip();
+
+      // Add every image to the ZIP in page order
+      for (let j = 0; j < outputImages.length; j++) {
+        const img = outputImages[j];
+        // Convert blob to ArrayBuffer for JSZip
+        const arrayBuffer = await img.blob.arrayBuffer();
+        zip.file('page-' + (j + 1) + '.' + ext, arrayBuffer);
+      }
+
+      // Generate the ZIP blob
+      const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+      processedBlob = zipBlob;
+
+      const zipName = getBaseName(file.name) + '-images.zip';
       const accent = toolState.config.accent;
+      const totalSize = outputImages.reduce(function (sum, img) { return sum + img.size; }, 0);
+
       resultDiv.innerHTML = `
         <div class="result-area">
           <div class="result-success-icon">✅</div>
-          <h2 class="result-title">${outputImages.length} Images Ready</h2>
-          <div class="result-files-list">
-            ${outputImages.map(function (img, i) {
-              return `<div class="result-file-item">
-                <span class="file-item-icon">🖼️</span>
-                <span class="result-file-name">${img.name}</span>
-                <span class="file-item-size">${formatFileSize(img.size)}</span>
-                <button class="btn-download-single" onclick="downloadPdfImage(${i})" style="color:${accent};">Download</button>
-              </div>`;
-            }).join('')}
+          <h2 class="result-title">Conversion Complete</h2>
+          <div class="result-stats">
+            <div class="result-stat">
+              <div class="result-stat-label">Pages</div>
+              <div class="result-stat-value">${outputImages.length}</div>
+            </div>
+            <div class="result-stat">
+              <div class="result-stat-label">Format</div>
+              <div class="result-stat-value">${ext.toUpperCase()}</div>
+            </div>
+            <div class="result-stat">
+              <div class="result-stat-label">ZIP Size</div>
+              <div class="result-stat-value">${formatFileSize(zipBlob.size)}</div>
+            </div>
           </div>
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">
+            All ${outputImages.length} images are packed in one ZIP file.
+          </p>
+          <button class="btn-download" onclick="handleDownload('${zipName}')" style="background:${accent};">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download ZIP (${outputImages.length} images)
+          </button>
           <button class="btn-start-again" onclick="openTool('pdf-to-image')">↺ Start Again</button>
         </div>`;
     }

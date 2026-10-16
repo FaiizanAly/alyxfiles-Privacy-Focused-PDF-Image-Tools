@@ -49,6 +49,105 @@ document.addEventListener('click', function (event) {
 });
 
 /* ============================================================
+   CREATOR PROFILE MODAL
+   ============================================================ */
+
+let lastActiveElementBeforeCreatorModal = null;
+
+function openCreatorModal() {
+  const backdrop = document.getElementById('creatorModalBackdrop');
+  const navBtn = document.getElementById('navCreatorBtn');
+  const closeBtn = document.getElementById('closeCreatorModal');
+
+  if (!backdrop) return;
+
+  lastActiveElementBeforeCreatorModal = document.activeElement;
+  backdrop.classList.add('active');
+  backdrop.setAttribute('aria-hidden', 'false');
+  if (navBtn) navBtn.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('modal-open');
+
+  if (closeBtn) {
+    closeBtn.focus();
+  }
+}
+
+function closeCreatorModal() {
+  const backdrop = document.getElementById('creatorModalBackdrop');
+  const navBtn = document.getElementById('navCreatorBtn');
+
+  if (!backdrop || !backdrop.classList.contains('active')) return;
+
+  backdrop.classList.remove('active');
+  backdrop.setAttribute('aria-hidden', 'true');
+  if (navBtn) navBtn.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('modal-open');
+
+  if (lastActiveElementBeforeCreatorModal && typeof lastActiveElementBeforeCreatorModal.focus === 'function') {
+    lastActiveElementBeforeCreatorModal.focus();
+  }
+}
+
+function initCreatorModal() {
+  const backdrop = document.getElementById('creatorModalBackdrop');
+  const card = document.getElementById('creatorCard');
+
+  if (backdrop) {
+    // Clicking outside the ID card closes it
+    backdrop.addEventListener('click', function (e) {
+      if (e.target === backdrop) {
+        closeCreatorModal();
+      }
+    });
+
+    // Keyboard focus trap inside modal dialog
+    backdrop.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab') return;
+      const focusable = backdrop.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    });
+  }
+
+  // Clicking inside ID card must not close the popup
+  if (card) {
+    card.addEventListener('click', function (e) {
+      e.stopPropagation();
+    });
+  }
+}
+
+// Pressing the Escape key closes it
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' || e.key === 'Esc') {
+    const backdrop = document.getElementById('creatorModalBackdrop');
+    if (backdrop && backdrop.classList.contains('active')) {
+      closeCreatorModal();
+    }
+  }
+});
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initCreatorModal);
+} else {
+  initCreatorModal();
+}
+
+
+/* ============================================================
    HOME / WORKSPACE VISIBILITY
    ============================================================ */
 

@@ -116,8 +116,9 @@ function openTool(toolId) {
     'crop-image':     { title: 'Crop Image',        accent: '#FF9800', accentBg: '#FFF8F0' },
     'convert-image':  { title: 'Convert Image',     accent: '#009688', accentBg: '#F0FFFD' },
     'enhance-image':  { title: 'Enhance Image',     accent: '#2196F3', accentBg: '#F0F7FF' },
-    'scan-enhance':   { title: 'Scan Enhance',      accent: '#673AB7', accentBg: '#F5F0FF' },
-    'merge-documents': { title: 'Merge Documents',  accent: '#6D4C41', accentBg: '#EFEBE9' },
+    'scan-enhance':    { title: 'Scan Enhance',       accent: '#673AB7', accentBg: '#F5F0FF' },
+    'merge-documents': { title: 'Merge Documents',   accent: '#6D4C41', accentBg: '#EFEBE9' },
+    'privacy-check':   { title: 'PDF Privacy Check', accent: '#1565C0', accentBg: '#E3F2FD' },
   };
 
   const config = allTools[toolId];
@@ -156,6 +157,7 @@ function openTool(toolId) {
     case 'enhance-image':  renderEnhanceImage(body);  break;
     case 'scan-enhance':   renderScanEnhance(body);   break;
     case 'merge-documents': renderMergeDocuments(body); break;
+    case 'privacy-check':   renderPrivacyCheck(body);   break;
     default:
       body.innerHTML = '<p style="color:var(--text-secondary);">Tool not found.</p>';
   }
@@ -3709,5 +3711,919 @@ async function processMergeDocuments() {
     resultDiv.innerHTML = '';
     showError(resultDiv, error.message || 'Something went wrong while merging. Please try again.');
     document.getElementById('mergeDocsBtn').disabled = false;
+  }
+}
+
+
+/* ============================================================
+   HELPER: HTML escaping (used by Privacy Check report)
+   ============================================================ */
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/* ============================================================
+   TOOL: PDF PRIVACY CHECK  (also branded "Share Safely")
+   Scans a PDF for potentially sensitive information before sharing.
+   All processing is local — no uploads, no external services.
+
+   Libraries used:
+     • pdf.js  → text extraction, metadata, annotations, attachments
+     • pdf-lib → structured metadata read/write, form field access,
+                  page-level annotation array manipulation
+   ============================================================ */
+
+function renderPrivacyCheck(container) {
+  const accent = toolState.config.accent;
+
+  container.innerHTML = `
+    <p style="font-size:14px;color:var(--text-secondary);margin-bottom:20px;line-height:1.6;">
+      Check your PDF for potentially sensitive information before sharing it.
+      All processing happens locally in your browser — your file is never uploaded to a server.
+    </p>
+
+    <div class="tool-upload" id="privacyDrop" tabindex="0" role="button" aria-label="Upload PDF file">
+      <span class="upload-label">🔍 Select PDF to Scan</span>
+      <p>Drag &amp; drop your PDF here, or click to browse</p>
+      <input type="file" id="privacyInput" accept=".pdf" />
+    </div>
+
+    <div id="privacyFileInfo" style="margin-bottom:12px;"></div>
+
+    <button class="btn-process" id="privacyScanBtn" disabled onclick="processPrivacyCheck()"
+      style="background:${accent};">
+      🔍 Scan PDF
+    </button>
+
+    <div id="privacyResult"></div>
+
+    <p style="font-size:12px;color:var(--text-secondary);text-align:center;margin-top:16px;">
+      🔒 Your PDF is processed locally in your browser and is not uploaded to an alyxfiles server for processing.
+    </p>`;
+
+  setupToolDropzone('privacyDrop', 'privacyInput', 'pdf', false, function (files) {
+    toolState.privacyFile = files[0];
+    document.getElementById('privacyScanBtn').disabled = false;
+    document.getElementById('privacyFileInfo').innerHTML =
+      `<div class="file-item">
+        <span class="file-item-icon">📄</span>
+        <span class="file-item-name">${escapeHtml(files[0].name)}</span>
+        <span class="file-item-size">${formatFileSize(files[0].size)}</span>
+      </div>`;
+    // Clear any previous report
+    document.getElementById('privacyResult').innerHTML = '';
+  });
+}
+
+/* ─── Main scan function ─────────────────────────────────── */
+
+async function processPrivacyCheck() {
+  const file = toolState.privacyFile;
+  if (!file) return;
+
+  const resultDiv = document.getElementById('privacyResult');
+  resultDiv.innerHTML = createLoadingHTML('Scanning PDF…');
+  document.getElementById('privacyScanBtn').disabled = true;
+
+  try {
+    // Load both libraries in parallel for speed
+    const [PDFLib, pdfjsLib] = await Promise.all([loadPdfLib(), loadPdfJs()]);
+    const { PDFDocument } = PDFLib;
+
+    const arrayBuffer = await readFileAsArrayBuffer(file);
+
+    // ── Load with pdf-lib (metadata, form fields) ──
+    let pdfLibDoc = null;
+    let pdfLibLoadError = null;
+    try {
+      pdfLibDoc = await PDFDocument.load(arrayBuffer.slice(0), {
+        ignoreEncryption: true,
+        updateMetadata: false
+      });
+    } catch (e) {
+      pdfLibLoadError = e.message || 'Could not open with editing library';
+    }
+
+    // ── Load with pdf.js (text, annotations, attachments) ──
+    let pdfjsDoc = null;
+    let pdfjsLoadError = null;
+    try {
+      pdfjsDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+    } catch (e) {
+      pdfjsLoadError = e.message || 'Could not open with rendering library';
+    }
+
+    if (!pdfLibDoc && !pdfjsDoc) {
+      throw new Error(
+        'Could not open this PDF. It may be password-protected, corrupted, or in an unsupported format.'
+      );
+    }
+
+    // Save for cleanup use — never modify the original buffer
+    toolState.privacyScanFile = file;
+    toolState.privacyArrayBuffer = arrayBuffer;
+
+    /* ═══════════════════════════════════════════════════════
+       SECTION 1: Document metadata (pdf-lib)
+       Reads standard Info dict fields.
+    ═══════════════════════════════════════════════════════ */
+    const metadata = {};
+    let metadataError = null;
+
+    if (pdfLibDoc) {
+      try {
+        metadata.title       = pdfLibDoc.getTitle()            || '';
+        metadata.author      = pdfLibDoc.getAuthor()           || '';
+        metadata.subject     = pdfLibDoc.getSubject()          || '';
+        metadata.keywords    = pdfLibDoc.getKeywords()         || '';
+        metadata.creator     = pdfLibDoc.getCreator()          || '';
+        metadata.producer    = pdfLibDoc.getProducer()         || '';
+        const cd = pdfLibDoc.getCreationDate();
+        metadata.creationDate = cd ? cd.toISOString() : '';
+        const md = pdfLibDoc.getModificationDate();
+        metadata.modDate     = md ? md.toISOString() : '';
+      } catch (e) {
+        metadataError = e.message || 'Error reading metadata';
+      }
+    } else {
+      metadataError = pdfLibLoadError;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       SECTION 2: Text content + pattern matching (pdf.js)
+       Extracts all selectable text and scans for common
+       sensitive patterns.
+    ═══════════════════════════════════════════════════════ */
+    const textMatches = { emails: [], phones: [], aadhaar: [], pan: [] };
+    let textError     = null;
+    let isImagePdf    = false;
+    let pageCount     = 0;
+
+    if (pdfjsDoc) {
+      pageCount = pdfjsDoc.numPages;
+      let allText     = '';
+      let pagesWithText = 0;
+
+      for (let i = 1; i <= pageCount; i++) {
+        try {
+          const page        = await pdfjsDoc.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText    = textContent.items.map(function (item) { return item.str; }).join(' ');
+          if (pageText.trim().length > 0) pagesWithText++;
+          allText += pageText + '\n';
+        } catch (e) {
+          // Skip pages that fail; don't abort the whole scan
+        }
+      }
+
+      if (pagesWithText === 0 && pageCount > 0) {
+        isImagePdf = true;
+      }
+
+      if (allText.trim().length > 0) {
+        // Email addresses
+        const emailRx = /\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/g;
+        textMatches.emails = privacyUniqueMatches(allText.match(emailRx));
+
+        // Phone numbers — India-aware (starts 6-9, 10 digits) and
+        // international formats (+CC NNNNNNNN) as well as XX-XXX-XXXX style
+        const phoneRx = /(?:\+91[\s\-]?)?(?:\(0\d{1,4}\)[\s\-]?)?\b[6-9]\d{9}\b|\b\d{3}[\s\-\.]\d{3}[\s\-\.]\d{4}\b|\+\d{1,3}[\s\-]\d{6,12}\b/g;
+        textMatches.phones = privacyUniqueMatches(
+          (allText.match(phoneRx) || []).map(function (s) { return s.trim(); })
+        );
+
+        // Aadhaar-like: 12 digits (with or without spaces as XXXX XXXX XXXX)
+        const aadhaarRx = /\b\d{4}\s\d{4}\s\d{4}\b|\b\d{12}\b/g;
+        const rawAadhaar = (allText.match(aadhaarRx) || []).filter(function (m) {
+          const digits = m.replace(/\s/g, '');
+          // Reject if all same digit, or clearly not ID-like
+          return digits.length === 12 && !/^(\d)\1+$/.test(digits);
+        });
+        textMatches.aadhaar = privacyUniqueMatches(rawAadhaar);
+
+        // PAN-like: 5 uppercase alpha + 4 digits + 1 uppercase alpha
+        const panRx = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g;
+        textMatches.pan = privacyUniqueMatches(allText.match(panRx));
+      }
+    } else {
+      textError = pdfjsLoadError;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       SECTION 3: Interactive form fields (pdf-lib)
+       Lists field names and types only — does NOT read values
+       to avoid exposing filled-in data in the report.
+    ═══════════════════════════════════════════════════════ */
+    let formFields = [];
+    let formError  = null;
+
+    if (pdfLibDoc) {
+      try {
+        const form   = pdfLibDoc.getForm();
+        const fields = form.getFields();
+        formFields = fields.map(function (field) {
+          const typeName = (field.constructor && field.constructor.name) ? field.constructor.name : 'Field';
+          return {
+            name: field.getName ? (field.getName() || '(unnamed)') : '(unnamed)',
+            type: typeName.replace(/^PDF/, '')
+          };
+        });
+      } catch (e) {
+        formError = e.message || 'Error reading form fields';
+      }
+    } else {
+      formError = pdfLibLoadError;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       SECTION 4: Annotations (pdf.js)
+       Reads non-Widget annotations per page.
+       Widget annotations are form fields (already counted above).
+    ═══════════════════════════════════════════════════════ */
+    let annotations = [];
+    let annotError  = null;
+
+    if (pdfjsDoc) {
+      try {
+        for (let i = 1; i <= pageCount; i++) {
+          let annots = [];
+          try {
+            const page = await pdfjsDoc.getPage(i);
+            annots = await page.getAnnotations();
+          } catch (e) { continue; }
+
+          annots.forEach(function (a) {
+            // Skip Widget (form field) annotations — already handled in Section 3
+            if (!a.subtype || a.subtype === 'Widget') return;
+            const content = a.contents || a.alternativeText || a.title || '';
+            annotations.push({
+              page: i,
+              subtype: a.subtype,
+              contents: content.substring(0, 120)
+            });
+          });
+        }
+      } catch (e) {
+        annotError = e.message || 'Error reading annotations';
+      }
+    } else {
+      annotError = pdfjsLoadError;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       SECTION 5: Embedded attachments (pdf.js)
+    ═══════════════════════════════════════════════════════ */
+    let attachments = [];
+    let attachError = null;
+
+    if (pdfjsDoc) {
+      try {
+        const atts = await pdfjsDoc.getAttachments();
+        if (atts && typeof atts === 'object') {
+          attachments = Object.keys(atts).map(function (name) {
+            const att = atts[name];
+            return {
+              name: name,
+              size: att && att.content ? att.content.length : null
+            };
+          });
+        }
+      } catch (e) {
+        attachError = e.message || 'Error reading attachments';
+      }
+    } else {
+      attachError = pdfjsLoadError;
+    }
+
+    // Store scan results in toolState for the cleanup step
+    toolState.privacyScanResults = {
+      metadata, metadataError,
+      textMatches, textError, isImagePdf, pageCount,
+      formFields, formError,
+      annotations, annotError,
+      attachments, attachError,
+      pdfLibLoadError, pdfjsLoadError
+    };
+
+    // Render the privacy report
+    renderPrivacyReport(resultDiv, toolState.privacyScanResults);
+
+  } catch (error) {
+    console.error('Privacy Check error:', error);
+    resultDiv.innerHTML = '';
+    showError(
+      resultDiv,
+      error.message || 'Something went wrong during scanning. Please try another file.'
+    );
+    document.getElementById('privacyScanBtn').disabled = false;
+  }
+}
+
+/* ─── Utility: deduplicate pattern matches ───────────────── */
+function privacyUniqueMatches(arr) {
+  if (!arr) return [];
+  return Array.from(new Set(arr.map(function (s) { return s.trim(); })));
+}
+
+/* ─── Report renderer ────────────────────────────────────── */
+function renderPrivacyReport(container, results) {
+  const accent = toolState.config ? toolState.config.accent : '#1565C0';
+  const {
+    metadata, metadataError,
+    textMatches, textError, isImagePdf, pageCount,
+    formFields, formError,
+    annotations, annotError,
+    attachments, attachError,
+    pdfLibLoadError
+  } = results;
+
+  // Compute finding counts
+  const metaValues       = metadataError ? [] : Object.values(metadata).filter(function (v) { return v && String(v).trim(); });
+  const metadataFindings = metaValues.length;
+  const textTotal        = textMatches.emails.length + textMatches.phones.length +
+                           textMatches.aadhaar.length + textMatches.pan.length;
+  const totalFindings    = metadataFindings + textTotal + formFields.length +
+                           annotations.length + attachments.length;
+
+  // Choose overall status
+  let overallStatus;
+  if (totalFindings === 0 && isImagePdf) {
+    overallStatus = 'image-only';
+  } else if (totalFindings === 0) {
+    overallStatus = 'no-findings';
+  } else if (totalFindings <= 3) {
+    overallStatus = 'minor-findings';
+  } else {
+    overallStatus = 'review-recommended';
+  }
+
+  const statusMap = {
+    'review-recommended': { icon: '⚠️', label: 'Review Recommended',   color: '#C62828', bg: '#FFF5F5' },
+    'minor-findings':     { icon: '⚠️', label: 'Items to Review',       color: '#E65100', bg: '#FFF8F0' },
+    'image-only':         { icon: 'ℹ️', label: 'Scan May Be Incomplete', color: '#1565C0', bg: '#E3F2FD' },
+    'no-findings':        { icon: '✅', label: 'No Obvious Findings',    color: '#2E7D32', bg: '#F0FFF0' }
+  };
+  const status = statusMap[overallStatus];
+
+  const metaLabel  = metadataError  ? '?' : metadataFindings;
+  const textLabel  = textError      ? '?' : textTotal;
+  const formLabel  = formError      ? '?' : formFields.length;
+  const annotLabel = annotError     ? '?' : annotations.length;
+  const attLabel   = attachError    ? '?' : attachments.length;
+
+  container.innerHTML = `
+    <div class="privacy-report" id="privacyReport">
+
+      <!-- Summary banner -->
+      <div class="privacy-summary" style="background:${status.bg};border-color:${status.color}30;">
+        <div class="privacy-summary-status">
+          <span class="privacy-status-icon">${status.icon}</span>
+          <div>
+            <div class="privacy-status-label" style="color:${status.color};">${status.label}</div>
+            <div class="privacy-status-hint">
+              This tool reports potential findings only. Please review each item and verify before sharing your PDF.
+              It does not guarantee a document is fully safe to share.
+            </div>
+          </div>
+        </div>
+        <div class="privacy-summary-stats">
+          ${privStatBlock('Metadata', metaLabel, metadataFindings > 0 && !metadataError)}
+          ${privStatBlock('Text patterns', textLabel, textTotal > 0 && !textError)}
+          ${privStatBlock('Form fields', formLabel, formFields.length > 0 && !formError)}
+          ${privStatBlock('Annotations', annotLabel, annotations.length > 0 && !annotError)}
+          ${privStatBlock('Attachments', attLabel, attachments.length > 0 && !attachError)}
+        </div>
+      </div>
+
+      ${isImagePdf ? `
+        <div class="privacy-warning-banner">
+          ⚠️ <strong>Scan may be incomplete:</strong>
+          This PDF contains scanned pages or image-only content.
+          Text within images cannot be inspected without OCR, which is not available in this tool.
+          Review the original carefully for sensitive information in images.
+        </div>` : ''}
+
+      <!-- Detail sections -->
+      <div class="privacy-sections">
+        ${renderPrivMetadataSection(metadata, metadataError)}
+        ${renderPrivTextSection(textMatches, textError, isImagePdf)}
+        ${renderPrivFormSection(formFields, formError)}
+        ${renderPrivAnnotSection(annotations, annotError)}
+        ${renderPrivAttachSection(attachments, attachError)}
+      </div>
+
+      <!-- Cleanup -->
+      ${renderPrivCleanupSection(results, accent)}
+
+      <!-- Legal disclaimer -->
+      <div class="privacy-disclaimer">
+        <strong>Important:</strong> This tool checks for common metadata fields and text patterns.
+        It does not inspect content inside images, custom data structures, hidden layers, or
+        encrypted streams. It does not guarantee that a PDF contains no sensitive information.
+        Always verify findings manually before sharing. No file data is uploaded or stored.
+      </div>
+
+      <button class="btn-start-again" onclick="openTool('privacy-check')"
+        style="display:block;margin:16px auto 0;">
+        ↺ Scan Another PDF
+      </button>
+    </div>`;
+}
+
+/* ─── Stat block helper ──────────────────────────────────── */
+function privStatBlock(label, value, hasFindings) {
+  const color = (value === '?') ? '#888' : (hasFindings ? '#C62828' : '#2E7D32');
+  return `<div class="privacy-stat-block">
+    <div class="privacy-stat-value" style="color:${color};">${value}</div>
+    <div class="privacy-stat-label">${label}</div>
+  </div>`;
+}
+
+/* ─── Section: Document Metadata ────────────────────────── */
+function renderPrivMetadataSection(metadata, error) {
+  if (error) {
+    return privSectionCard('Document Metadata', 'ℹ️', 'Author, title, dates, software used',
+      `<p class="privacy-section-note error">Could not read metadata: ${escapeHtml(error)}</p>`,
+      false, false);
+  }
+
+  const fieldDefs = [
+    { key: 'title',        label: 'Title',                   personal: true  },
+    { key: 'author',       label: 'Author',                  personal: true  },
+    { key: 'subject',      label: 'Subject',                 personal: true  },
+    { key: 'keywords',     label: 'Keywords',                personal: true  },
+    { key: 'creator',      label: 'Creator (application)',   personal: false },
+    { key: 'producer',     label: 'Producer (PDF engine)',   personal: false },
+    { key: 'creationDate', label: 'Creation Date',           personal: false },
+    { key: 'modDate',      label: 'Last Modified',           personal: false },
+  ];
+
+  const present = fieldDefs.filter(function (f) {
+    return metadata[f.key] && String(metadata[f.key]).trim();
+  });
+
+  if (present.length === 0) {
+    return privSectionCard('Document Metadata', '✅', 'Author, title, dates, software used',
+      '<p class="privacy-section-note ok">No metadata found in this PDF.</p>',
+      false, false);
+  }
+
+  const personalCount = present.filter(function (f) { return f.personal; }).length;
+  const hasPersonal   = personalCount > 0;
+  const note          = hasPersonal
+    ? `<p class="privacy-section-note warning">${personalCount} personal metadata field(s) detected. Review before sharing.</p>`
+    : `<p class="privacy-section-note ok">Metadata present, but does not appear to contain obvious personal information.</p>`;
+
+  const rows = present.map(function (f) {
+    const val = String(metadata[f.key]);
+    const valueHtml = f.personal
+      ? `<span class="privacy-masked" data-value="${escapeHtml(val)}" data-reveal="false">` +
+        `<span class="priv-mask-text">••••••••</span>` +
+        `<button class="privacy-reveal-btn" onclick="privToggleReveal(this)" title="Reveal value">👁</button>` +
+        `</span>`
+      : `<span class="privacy-plain">${escapeHtml(val)}</span>`;
+    return `<div class="privacy-row${f.personal ? ' privacy-row-sensitive' : ''}">
+      <span class="privacy-row-label">${f.label}</span>
+      <span class="privacy-row-value">${valueHtml}</span>
+    </div>`;
+  }).join('');
+
+  return privSectionCard('Document Metadata', hasPersonal ? '⚠️' : 'ℹ️', 'Author, title, dates, software used',
+    note + `<div class="privacy-rows">${rows}</div>`,
+    hasPersonal, false);
+}
+
+/* ─── Section: Text Patterns ─────────────────────────────── */
+function renderPrivTextSection(textMatches, error, isImagePdf) {
+  if (error) {
+    return privSectionCard('Text Content Patterns', 'ℹ️', 'Emails, phone numbers, ID patterns',
+      `<p class="privacy-section-note error">Could not extract text: ${escapeHtml(error)}</p>`,
+      false, false);
+  }
+  if (isImagePdf) {
+    return privSectionCard('Text Content Patterns', 'ℹ️', 'Emails, phone numbers, ID patterns',
+      '<p class="privacy-section-note warning">This PDF contains scanned or image-only pages. Text extraction is not available without OCR.</p>',
+      false, false);
+  }
+
+  const total = textMatches.emails.length + textMatches.phones.length +
+                textMatches.aadhaar.length + textMatches.pan.length;
+
+  if (total === 0) {
+    return privSectionCard('Text Content Patterns', '✅', 'Emails, phone numbers, ID patterns',
+      '<p class="privacy-section-note ok">No common sensitive text patterns detected in extractable text.</p>',
+      false, false);
+  }
+
+  let body = `<p class="privacy-section-note warning">${total} potential pattern(s) detected. ` +
+    `These are text patterns that resemble sensitive data — please review each one.</p>`;
+
+  if (textMatches.emails.length > 0) {
+    body += privMatchGroup('Email Addresses', textMatches.emails, true);
+  }
+  if (textMatches.phones.length > 0) {
+    body += privMatchGroup('Phone Numbers', textMatches.phones, true);
+  }
+  if (textMatches.aadhaar.length > 0) {
+    body += privMatchGroup(
+      'Possible Aadhaar-like Numbers (12-digit)',
+      textMatches.aadhaar, true
+    );
+  }
+  if (textMatches.pan.length > 0) {
+    body += privMatchGroup('Possible PAN-like Patterns (5L+4D+1L)', textMatches.pan, true);
+  }
+
+  return privSectionCard('Text Content Patterns', '⚠️', 'Emails, phone numbers, ID patterns',
+    body, true, false);
+}
+
+function privMatchGroup(label, matches, masked) {
+  const items = matches.map(function (v) {
+    if (!masked) {
+      return `<span class="privacy-match-tag">${escapeHtml(v)}</span>`;
+    }
+    return `<span class="privacy-masked" data-value="${escapeHtml(v)}" data-reveal="false">` +
+      `<span class="priv-mask-text">••••••</span>` +
+      `<button class="privacy-reveal-btn" onclick="privToggleReveal(this)" title="Reveal">👁</button>` +
+      `</span>`;
+  }).join('');
+  return `<div class="privacy-match-group">
+    <div class="privacy-match-label">${label} (${matches.length})</div>
+    <div class="privacy-match-items">${items}</div>
+  </div>`;
+}
+
+/* ─── Section: Form Fields ───────────────────────────────── */
+function renderPrivFormSection(formFields, error) {
+  if (error) {
+    return privSectionCard('Interactive Form Fields', 'ℹ️', 'Fields that may store filled-in data',
+      `<p class="privacy-section-note error">Could not inspect form fields: ${escapeHtml(error)}</p>`,
+      false, false);
+  }
+  if (formFields.length === 0) {
+    return privSectionCard('Interactive Form Fields', '✅', 'Fields that may store filled-in data',
+      '<p class="privacy-section-note ok">No interactive form fields detected.</p>',
+      false, false);
+  }
+
+  const rows = formFields.map(function (f) {
+    return `<div class="privacy-row">
+      <span class="privacy-row-label">${escapeHtml(f.name)}</span>
+      <span class="privacy-row-type">${escapeHtml(f.type)}</span>
+    </div>`;
+  }).join('');
+
+  return privSectionCard('Interactive Form Fields', '⚠️', 'Fields that may store filled-in data',
+    `<p class="privacy-section-note warning">${formFields.length} form field(s) detected. ` +
+    `These may contain filled-in personal data.</p>` +
+    `<div class="privacy-rows">${rows}</div>`,
+    true, false);
+}
+
+/* ─── Section: Annotations ───────────────────────────────── */
+function renderPrivAnnotSection(annotations, error) {
+  if (error) {
+    return privSectionCard('Annotations & Comments', 'ℹ️', 'Sticky notes, comments, highlights',
+      `<p class="privacy-section-note error">Could not inspect annotations: ${escapeHtml(error)}</p>`,
+      false, false);
+  }
+  if (annotations.length === 0) {
+    return privSectionCard('Annotations & Comments', '✅', 'Sticky notes, comments, highlights',
+      '<p class="privacy-section-note ok">No annotations or comments detected.</p>',
+      false, false);
+  }
+
+  const rows = annotations.map(function (a) {
+    const preview = a.contents
+      ? (a.contents.substring(0, 80) + (a.contents.length > 80 ? '…' : ''))
+      : '(no text content)';
+    return `<div class="privacy-row">
+      <span class="privacy-row-label">Page ${a.page} · ${escapeHtml(a.subtype)}</span>
+      <span class="privacy-row-value privacy-plain">${escapeHtml(preview)}</span>
+    </div>`;
+  }).join('');
+
+  return privSectionCard('Annotations & Comments', '⚠️', 'Sticky notes, comments, highlights',
+    `<p class="privacy-section-note warning">${annotations.length} annotation(s) found. ` +
+    `Review notes and comments for sensitive content.</p>` +
+    `<div class="privacy-rows">${rows}</div>`,
+    true, false);
+}
+
+/* ─── Section: Attachments ───────────────────────────────── */
+function renderPrivAttachSection(attachments, error) {
+  if (error) {
+    return privSectionCard('Embedded Files', 'ℹ️', 'Files attached inside the PDF',
+      `<p class="privacy-section-note error">Could not inspect attachments: ${escapeHtml(error)}</p>`,
+      false, false);
+  }
+  if (attachments.length === 0) {
+    return privSectionCard('Embedded Files', '✅', 'Files attached inside the PDF',
+      '<p class="privacy-section-note ok">No embedded files detected.</p>',
+      false, false);
+  }
+
+  const rows = attachments.map(function (a) {
+    const sizeStr = a.size !== null ? formatFileSize(a.size) : 'unknown size';
+    return `<div class="privacy-row">
+      <span class="privacy-row-label">${escapeHtml(a.name)}</span>
+      <span class="privacy-row-type">${sizeStr}</span>
+    </div>`;
+  }).join('');
+
+  return privSectionCard('Embedded Files', '⚠️', 'Files attached inside the PDF',
+    `<p class="privacy-section-note warning">${attachments.length} embedded file(s) found. ` +
+    `Verify whether these should be removed before sharing.</p>` +
+    `<div class="privacy-rows">${rows}</div>`,
+    true, false);
+}
+
+/* ─── Shared section card template ──────────────────────── */
+function privSectionCard(title, icon, subtitle, bodyHtml, hasFindings) {
+  const borderColor = hasFindings ? '#FFCDD2' : 'var(--border-color)';
+  return `<div class="privacy-section-card" style="border-color:${borderColor};">
+    <div class="privacy-section-header">
+      <span class="privacy-section-icon">${icon}</span>
+      <div>
+        <div class="privacy-section-title">${title}</div>
+        <div class="privacy-section-subtitle">${subtitle}</div>
+      </div>
+    </div>
+    <div class="privacy-section-body">${bodyHtml}</div>
+  </div>`;
+}
+
+/* ─── Cleanup section ────────────────────────────────────── */
+function renderPrivCleanupSection(results, accent) {
+  const { pdfLibLoadError, formFields, formError, annotations, annotError, metadata, metadataError } = results;
+
+  if (pdfLibLoadError) {
+    return `<div class="privacy-cleanup">
+      <h3 class="privacy-cleanup-title">🧹 Safe Cleanup</h3>
+      <p class="privacy-section-note error" style="margin:0;">
+        Cleanup is not available because the PDF could not be opened with the editing library.
+      </p>
+    </div>`;
+  }
+
+  const hasMetadata   = !metadataError && Object.values(metadata).some(function (v) { return v && String(v).trim(); });
+  const hasFormFields = !formError && formFields.length > 0;
+  const hasAnnotations = !annotError && annotations.length > 0;
+
+  if (!hasMetadata && !hasFormFields && !hasAnnotations) {
+    return `<div class="privacy-cleanup">
+      <h3 class="privacy-cleanup-title">🧹 Safe Cleanup</h3>
+      <p class="privacy-section-note ok" style="margin:0;">
+        No cleanup actions available — nothing removable was detected.
+      </p>
+    </div>`;
+  }
+
+  const metaOpt = hasMetadata ? `
+    <label class="privacy-cleanup-option">
+      <input type="checkbox" id="privCleanMeta" checked />
+      <div>
+        <strong>Clear document metadata</strong>
+        <span>Removes title, author, subject, keywords, creator, and producer fields from the PDF Info dictionary.</span>
+      </div>
+    </label>` : '';
+
+  const formOpt = hasFormFields ? `
+    <label class="privacy-cleanup-option">
+      <input type="checkbox" id="privCleanForm" />
+      <div>
+        <strong>Remove form fields (${formFields.length})</strong>
+        <span>Removes all interactive form fields. The visual appearance of the page may change where fields were placed.</span>
+      </div>
+    </label>` : '';
+
+  const annotOpt = hasAnnotations ? `
+    <label class="privacy-cleanup-option">
+      <input type="checkbox" id="privCleanAnnot" />
+      <div>
+        <strong>Remove annotations &amp; comments (${annotations.length})</strong>
+        <span>Removes sticky notes, comments, and other detected annotations from all pages.</span>
+      </div>
+    </label>` : '';
+
+  return `<div class="privacy-cleanup">
+    <h3 class="privacy-cleanup-title">🧹 Safe Cleanup</h3>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+      Select what to remove and download a cleaned copy. Your original file is not modified.
+    </p>
+    <div class="privacy-cleanup-options">
+      ${metaOpt}
+      ${formOpt}
+      ${annotOpt}
+    </div>
+    <div class="privacy-cleanup-note">
+      ⚠️ <strong>About redaction:</strong>
+      This tool can remove metadata, form fields, and annotations — but it cannot permanently
+      redact visible text from PDF page content. Removing metadata does not erase text printed
+      on the page. If your document contains sensitive text in the body, you must edit or
+      recreate the source file to remove it.
+    </div>
+    <div id="privCleanupResult" style="margin-top:12px;"></div>
+    <button class="btn-process" id="privCleanBtn" onclick="processPrivacyCleanup()"
+      style="background:${accent};margin-top:12px;">
+      Download Cleaned PDF
+    </button>
+  </div>`;
+}
+
+/* ─── Reveal/hide toggle for masked values ───────────────── */
+function privToggleReveal(btn) {
+  const span     = btn.parentElement; // .privacy-masked
+  const maskText = span.querySelector('.priv-mask-text');
+  if (!maskText) return;
+  const revealed = span.dataset.reveal === 'true';
+  if (revealed) {
+    span.dataset.reveal = 'false';
+    maskText.textContent = maskText.dataset.maskedAs || '••••••••';
+    btn.title       = 'Reveal';
+    btn.textContent = '👁';
+  } else {
+    span.dataset.reveal = 'true';
+    // Store the mask placeholder so we can restore it
+    if (!maskText.dataset.maskedAs) {
+      maskText.dataset.maskedAs = maskText.textContent;
+    }
+    maskText.textContent = span.dataset.value || '(value)';
+    btn.title       = 'Hide';
+    btn.textContent = '🙈';
+  }
+}
+
+/* ─── Cleanup processor ──────────────────────────────────── */
+async function processPrivacyCleanup() {
+  const cleanupResultDiv = document.getElementById('privCleanupResult');
+  const cleanBtn         = document.getElementById('privCleanBtn');
+
+  const doMeta  = !!(document.getElementById('privCleanMeta')  && document.getElementById('privCleanMeta').checked);
+  const doForm  = !!(document.getElementById('privCleanForm')  && document.getElementById('privCleanForm').checked);
+  const doAnnot = !!(document.getElementById('privCleanAnnot') && document.getElementById('privCleanAnnot').checked);
+
+  if (!doMeta && !doForm && !doAnnot) {
+    alert('Please select at least one cleanup action before downloading.');
+    return;
+  }
+
+  if (cleanBtn) cleanBtn.disabled = true;
+  if (cleanupResultDiv) cleanupResultDiv.innerHTML = createLoadingHTML('Creating cleaned PDF…');
+
+  try {
+    const PDFLib = await loadPdfLib();
+    const { PDFDocument } = PDFLib;
+
+    // Always load from the original buffer — never mutate what was scanned
+    const freshBuffer = toolState.privacyArrayBuffer.slice(0);
+    const doc = await PDFDocument.load(freshBuffer, { ignoreEncryption: true });
+
+    const actionsLog = [];
+
+    /* ── Action 1: Clear metadata ── */
+    if (doMeta) {
+      try {
+        doc.setTitle('');
+        doc.setAuthor('');
+        doc.setSubject('');
+        doc.setKeywords([]);
+        doc.setCreator('');
+        doc.setProducer('');
+        // Set dates to epoch to avoid leaking modification timestamp
+        // (pdf-lib will still write a new ModificationDate on save — this is expected)
+        actionsLog.push('✅ Document metadata cleared (title, author, subject, keywords, creator, producer)');
+      } catch (e) {
+        actionsLog.push('⚠️ Metadata: could not fully clear — ' + (e.message || 'unknown error'));
+      }
+    }
+
+    /* ── Action 2: Remove form fields ── */
+    if (doForm) {
+      let removed = 0;
+      let failed  = 0;
+      try {
+        const form   = doc.getForm();
+        const fields = form.getFields();
+        // Iterate in reverse to avoid index shifting
+        for (let i = fields.length - 1; i >= 0; i--) {
+          try {
+            form.removeField(fields[i]);
+            removed++;
+          } catch (e) {
+            failed++;
+          }
+        }
+        actionsLog.push(
+          '✅ Form fields: ' + removed + ' removed' +
+          (failed > 0 ? ' (' + failed + ' could not be removed)' : '')
+        );
+      } catch (e) {
+        actionsLog.push('⚠️ Form fields: could not remove — ' + (e.message || 'unknown error'));
+      }
+    }
+
+    /* ── Action 3: Remove annotations from pages ── */
+    if (doAnnot) {
+      let removedAnnot = 0;
+      let failedAnnot  = 0;
+      try {
+        const pages = doc.getPages();
+        for (let pi = 0; pi < pages.length; pi++) {
+          const page     = pages[pi];
+          const pageNode = page.node;
+          try {
+            // pdf-lib exposes page.node.Annots() which returns the PDFArray of annotation refs
+            const annotsArr = pageNode.Annots();
+            if (!annotsArr) continue;
+
+            // Get the size (number of annotations on this page)
+            const size = (typeof annotsArr.size === 'function') ? annotsArr.size() : 0;
+            if (size === 0) continue;
+
+            // Collect refs first, then remove (removing while iterating changes indices)
+            const refs = [];
+            for (let ai = 0; ai < size; ai++) {
+              try { refs.push(annotsArr.get(ai)); } catch (e2) { /* skip */ }
+            }
+            // Remove each annotation using the page node's removeAnnot method
+            for (let ri = 0; ri < refs.length; ri++) {
+              try {
+                pageNode.removeAnnot(refs[ri]);
+                removedAnnot++;
+              } catch (e3) {
+                failedAnnot++;
+              }
+            }
+          } catch (e4) {
+            // This page's annotations could not be accessed — skip it
+            failedAnnot++;
+          }
+        }
+        actionsLog.push(
+          '✅ Annotations: ' + removedAnnot + ' removed from pages' +
+          (failedAnnot > 0 ? ' (' + failedAnnot + ' could not be removed)' : '')
+        );
+      } catch (e) {
+        actionsLog.push('⚠️ Annotations: could not remove — ' + (e.message || 'unknown error'));
+      }
+    }
+
+    // Save the cleaned document
+    const pdfBytes = await doc.save({ useObjectStreams: true });
+    const blob     = new Blob([pdfBytes], { type: 'application/pdf' });
+    processedBlob  = blob;
+
+    const baseName = getBaseName(toolState.privacyScanFile.name);
+    const filename = baseName + '-cleaned.pdf';
+    const accent   = toolState.config ? toolState.config.accent : '#1565C0';
+
+    if (cleanupResultDiv) {
+      cleanupResultDiv.innerHTML = `
+        <div class="result-area" style="margin-top:0;padding:20px;">
+          <div class="result-success-icon" style="font-size:28px;margin-bottom:8px;">✅</div>
+          <h3 style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:10px;">
+            Cleaned PDF Ready
+          </h3>
+          <ul style="font-size:13px;color:var(--text-secondary);text-align:left;
+            margin:0 auto 16px;padding-left:20px;max-width:420px;line-height:1.7;">
+            ${actionsLog.map(function (a) { return '<li>' + escapeHtml(a) + '</li>'; }).join('')}
+          </ul>
+          <p style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;">
+            Original file size: ${formatFileSize(toolState.privacyScanFile.size)} →
+            Cleaned file size: ${formatFileSize(blob.size)}
+          </p>
+          <button class="btn-download" onclick="handleDownload('${escapeHtml(filename)}')"
+            style="background:${accent};max-width:280px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download ${escapeHtml(filename)}
+          </button>
+        </div>`;
+    }
+
+  } catch (error) {
+    console.error('Privacy cleanup error:', error);
+    if (cleanupResultDiv) {
+      cleanupResultDiv.innerHTML = '';
+      showError(
+        cleanupResultDiv,
+        'Cleanup failed: ' + (error.message || 'Unknown error. Please try again.')
+      );
+    }
+  } finally {
+    if (cleanBtn) cleanBtn.disabled = false;
   }
 }

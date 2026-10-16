@@ -117,6 +117,7 @@ function openTool(toolId) {
     'convert-image':  { title: 'Convert Image',     accent: '#009688', accentBg: '#F0FFFD' },
     'enhance-image':  { title: 'Enhance Image',     accent: '#2196F3', accentBg: '#F0F7FF' },
     'scan-enhance':   { title: 'Scan Enhance',      accent: '#673AB7', accentBg: '#F5F0FF' },
+    'merge-documents': { title: 'Merge Documents',  accent: '#6D4C41', accentBg: '#EFEBE9' },
   };
 
   const config = allTools[toolId];
@@ -154,6 +155,7 @@ function openTool(toolId) {
     case 'convert-image':  renderConvertImage(body);  break;
     case 'enhance-image':  renderEnhanceImage(body);  break;
     case 'scan-enhance':   renderScanEnhance(body);   break;
+    case 'merge-documents': renderMergeDocuments(body); break;
     default:
       body.innerHTML = '<p style="color:var(--text-secondary);">Tool not found.</p>';
   }
@@ -813,8 +815,8 @@ function renderMergeFileList() {
     return;
   }
 
-  // Hide the drop zone once files are added — use "Add More Files" button instead
-  if (dropZone) dropZone.style.display = 'none';
+  // Keep the drop zone always visible — users can still drag or click to add more
+  if (dropZone) dropZone.style.display = '';
   wrap.style.display = 'block';
   countEl.textContent = files.length + ' PDF' + (files.length !== 1 ? 's' : '') + ' selected';
   mergeBtn.disabled = files.length < 2;
@@ -2173,23 +2175,132 @@ function downloadPdfImage(index) {
 
 function renderImageToPdf(container) {
   const accent = toolState.config.accent;
+  toolState.imgPdfFiles = [];
+
   container.innerHTML = `
-    <div class="info-box">Select one or more images. They will be combined into a single PDF in the order shown.</div>
+    <div class="info-box">Add one or more images. They will be combined into a single PDF in the order shown.</div>
+
     <div class="tool-upload" id="imgPdfDrop" tabindex="0" role="button" aria-label="Upload images">
       <span class="upload-label">🖼️ Add Images</span>
       <p>Drag &amp; drop images here, or click to browse</p>
       <input type="file" id="imgPdfInput" multiple accept=".jpg,.jpeg,.png,.webp" />
     </div>
-    <div id="imgPdfFileList" style="margin-bottom:16px;"></div>
+
+    <div id="imgPdfFileListWrap" style="display:none; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span id="imgPdfFileCount" style="font-size:13px;font-weight:600;color:var(--text-secondary);"></span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-add-more" id="imgPdfAddMoreBtn" onclick="imgPdfPickMore()" style="color:${accent};">
+            + Add More Files
+          </button>
+          <button class="btn-clear-all-files" onclick="imgPdfClearAll()" style="color:var(--text-secondary);">
+            Clear All
+          </button>
+        </div>
+      </div>
+      <ul id="imgPdfOrderedList" class="merge-file-list"></ul>
+    </div>
+
     <button class="btn-process" id="imgPdfBtn" disabled onclick="processImageToPdf()" style="background:${accent};">
       Convert to PDF
     </button>
     <div id="imgPdfResult"></div>`;
 
+  // Hidden secondary input for "Add More Files"
+  const moreInput = document.createElement('input');
+  moreInput.type = 'file';
+  moreInput.id = 'imgPdfMoreInput';
+  moreInput.multiple = true;
+  moreInput.accept = '.jpg,.jpeg,.png,.webp';
+  moreInput.style.display = 'none';
+  moreInput.addEventListener('change', function () {
+    const newFiles = validateToolFiles(Array.from(this.files), 'image', true);
+    if (newFiles.length > 0) imgPdfAddFiles(newFiles);
+    this.value = '';
+  });
+  container.appendChild(moreInput);
+
   setupToolDropzone('imgPdfDrop', 'imgPdfInput', 'image', true, function (files) {
-    toolState.imgPdfFiles = files;
-    renderToolFileList('imgPdfFileList', files, 'image');
-    document.getElementById('imgPdfBtn').disabled = files.length === 0;
+    imgPdfAddFiles(files);
+  });
+}
+
+function imgPdfPickMore() {
+  const input = document.getElementById('imgPdfMoreInput');
+  if (input) input.click();
+}
+
+function imgPdfAddFiles(newFiles) {
+  newFiles.forEach(function (file) {
+    toolState.imgPdfFiles.push(file);
+  });
+  renderImgPdfFileList();
+}
+
+function imgPdfRemoveFile(index) {
+  toolState.imgPdfFiles.splice(index, 1);
+  renderImgPdfFileList();
+}
+
+function imgPdfMoveUp(index) {
+  if (index === 0) return;
+  const tmp = toolState.imgPdfFiles[index - 1];
+  toolState.imgPdfFiles[index - 1] = toolState.imgPdfFiles[index];
+  toolState.imgPdfFiles[index] = tmp;
+  renderImgPdfFileList();
+}
+
+function imgPdfMoveDown(index) {
+  const files = toolState.imgPdfFiles;
+  if (index === files.length - 1) return;
+  const tmp = files[index + 1];
+  files[index + 1] = files[index];
+  files[index] = tmp;
+  renderImgPdfFileList();
+}
+
+function imgPdfClearAll() {
+  toolState.imgPdfFiles = [];
+  renderImgPdfFileList();
+}
+
+function renderImgPdfFileList() {
+  const files = toolState.imgPdfFiles;
+  const wrap = document.getElementById('imgPdfFileListWrap');
+  const list = document.getElementById('imgPdfOrderedList');
+  const countEl = document.getElementById('imgPdfFileCount');
+  const btn = document.getElementById('imgPdfBtn');
+
+  if (!wrap || !list) return;
+
+  if (files.length === 0) {
+    wrap.style.display = 'none';
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  wrap.style.display = 'block';
+  countEl.textContent = files.length + ' image' + (files.length !== 1 ? 's' : '') + ' selected';
+  btn.disabled = false;
+
+  list.innerHTML = '';
+  files.forEach(function (file, index) {
+    const li = document.createElement('li');
+    li.className = 'merge-file-item';
+    li.innerHTML = `
+      <span class="merge-file-order">${index + 1}</span>
+      <span class="file-item-icon">🖼️</span>
+      <span class="file-item-name" title="${file.name}">${file.name}</span>
+      <span class="file-item-size">${formatFileSize(file.size)}</span>
+      <div class="merge-file-actions">
+        <button class="merge-btn-order" onclick="imgPdfMoveUp(${index})"
+          ${index === 0 ? 'disabled' : ''} title="Move up" aria-label="Move up">↑</button>
+        <button class="merge-btn-order" onclick="imgPdfMoveDown(${index})"
+          ${index === files.length - 1 ? 'disabled' : ''} title="Move down" aria-label="Move down">↓</button>
+        <button class="merge-btn-remove" onclick="imgPdfRemoveFile(${index})"
+          title="Remove" aria-label="Remove file">×</button>
+      </div>`;
+    list.appendChild(li);
   });
 }
 
@@ -3341,5 +3452,262 @@ async function processScanEnhance() {
     resultDiv.innerHTML = '';
     showError(resultDiv, error.message || 'Something went wrong. Please try again.');
     document.getElementById('scanBtn').disabled = false;
+  }
+}
+
+/* ============================================================
+   TOOL: MERGE DOCUMENTS
+   Combines PDFs and images (JPG, PNG, WEBP) into one PDF.
+   Files are processed in the exact order shown in the list.
+   ============================================================ */
+
+function renderMergeDocuments(container) {
+  const accent = toolState.config.accent;
+  toolState.mergeDocsFiles = [];
+
+  container.innerHTML = `
+    <div class="info-box">Add PDFs and images in any order. Supported formats: PDF, JPG, PNG, WEBP. Each image becomes one page; PDFs keep all their original pages.</div>
+
+    <div class="tool-upload" id="mergeDocsDrop" tabindex="0" role="button" aria-label="Upload PDF or image files">
+      <span class="upload-label">📂 Add Files</span>
+      <p>Drag &amp; drop PDFs or images here, or click to browse</p>
+      <input type="file" id="mergeDocsInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp" />
+    </div>
+
+    <div id="mergeDocsFileListWrap" style="display:none; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span id="mergeDocsFileCount" style="font-size:13px;font-weight:600;color:var(--text-secondary);"></span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-add-more" id="mergeDocsAddMoreBtn" onclick="mergeDocsPickMore()" style="color:${accent};">
+            + Add More Files
+          </button>
+          <button class="btn-clear-all-files" onclick="mergeDocsClearAll()" style="color:var(--text-secondary);">
+            Clear All
+          </button>
+        </div>
+      </div>
+      <ul id="mergeDocsOrderedList" class="merge-file-list"></ul>
+    </div>
+
+    <button class="btn-process" id="mergeDocsBtn" disabled onclick="processMergeDocuments()" style="background:${accent};">
+      Merge Documents
+    </button>
+    <div id="mergeDocsResult"></div>
+
+    <p style="font-size:12px;color:var(--text-secondary);text-align:center;margin-top:12px;">🔒 Processed locally in your browser. Files are not uploaded to a server for processing.</p>`;
+
+  // Hidden secondary input for "Add More Files"
+  const moreInput = document.createElement('input');
+  moreInput.type = 'file';
+  moreInput.id = 'mergeDocsMoreInput';
+  moreInput.multiple = true;
+  moreInput.accept = '.pdf,.jpg,.jpeg,.png,.webp';
+  moreInput.style.display = 'none';
+  moreInput.addEventListener('change', function () {
+    const newFiles = mergeDocsValidateFiles(Array.from(this.files));
+    if (newFiles.length > 0) mergeDocsAddFiles(newFiles);
+    this.value = '';
+  });
+  container.appendChild(moreInput);
+
+  // Main drop zone — validates and appends files
+  const dropZone = document.getElementById('mergeDocsDrop');
+  const input = document.getElementById('mergeDocsInput');
+
+  dropZone.addEventListener('click', function () { input.click(); });
+  dropZone.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+  });
+  input.addEventListener('change', function () {
+    const files = mergeDocsValidateFiles(Array.from(this.files));
+    if (files.length > 0) mergeDocsAddFiles(files);
+    this.value = '';
+  });
+  dropZone.addEventListener('dragenter', function (e) { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragover', function (e) { e.preventDefault(); });
+  dropZone.addEventListener('dragleave', function (e) {
+    if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
+  });
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const files = mergeDocsValidateFiles(Array.from(e.dataTransfer.files));
+    if (files.length > 0) mergeDocsAddFiles(files);
+  });
+}
+
+// Validate files for Merge Documents (accepts PDF and images)
+function mergeDocsValidateFiles(files) {
+  const valid = [];
+  for (const file of files) {
+    if (isPdf(file) || isImage(file)) {
+      valid.push(file);
+    } else {
+      alert('"' + file.name + '" is not supported. Please use PDF, JPG, PNG, or WEBP files.');
+    }
+  }
+  return valid;
+}
+
+function mergeDocsPickMore() {
+  const input = document.getElementById('mergeDocsMoreInput');
+  if (input) input.click();
+}
+
+function mergeDocsAddFiles(newFiles) {
+  newFiles.forEach(function (file) {
+    toolState.mergeDocsFiles.push(file);
+  });
+  renderMergeDocsFileList();
+}
+
+function mergeDocsRemoveFile(index) {
+  toolState.mergeDocsFiles.splice(index, 1);
+  renderMergeDocsFileList();
+}
+
+function mergeDocsMoveUp(index) {
+  if (index === 0) return;
+  const tmp = toolState.mergeDocsFiles[index - 1];
+  toolState.mergeDocsFiles[index - 1] = toolState.mergeDocsFiles[index];
+  toolState.mergeDocsFiles[index] = tmp;
+  renderMergeDocsFileList();
+}
+
+function mergeDocsMoveDown(index) {
+  const files = toolState.mergeDocsFiles;
+  if (index === files.length - 1) return;
+  const tmp = files[index + 1];
+  files[index + 1] = files[index];
+  files[index] = tmp;
+  renderMergeDocsFileList();
+}
+
+function mergeDocsClearAll() {
+  toolState.mergeDocsFiles = [];
+  renderMergeDocsFileList();
+}
+
+function renderMergeDocsFileList() {
+  const files = toolState.mergeDocsFiles;
+  const wrap = document.getElementById('mergeDocsFileListWrap');
+  const list = document.getElementById('mergeDocsOrderedList');
+  const countEl = document.getElementById('mergeDocsFileCount');
+  const btn = document.getElementById('mergeDocsBtn');
+
+  if (!wrap || !list) return;
+
+  if (files.length === 0) {
+    wrap.style.display = 'none';
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  wrap.style.display = 'block';
+  countEl.textContent = files.length + ' file' + (files.length !== 1 ? 's' : '') + ' selected';
+  btn.disabled = files.length < 1;
+
+  list.innerHTML = '';
+  files.forEach(function (file, index) {
+    const icon = isPdf(file) ? '📄' : '🖼️';
+    const li = document.createElement('li');
+    li.className = 'merge-file-item';
+    li.innerHTML = `
+      <span class="merge-file-order">${index + 1}</span>
+      <span class="file-item-icon">${icon}</span>
+      <span class="file-item-name" title="${file.name}">${file.name}</span>
+      <span class="file-item-size">${formatFileSize(file.size)}</span>
+      <div class="merge-file-actions">
+        <button class="merge-btn-order" onclick="mergeDocsMoveUp(${index})"
+          ${index === 0 ? 'disabled' : ''} title="Move up" aria-label="Move up">↑</button>
+        <button class="merge-btn-order" onclick="mergeDocsMoveDown(${index})"
+          ${index === files.length - 1 ? 'disabled' : ''} title="Move down" aria-label="Move down">↓</button>
+        <button class="merge-btn-remove" onclick="mergeDocsRemoveFile(${index})"
+          title="Remove" aria-label="Remove file">×</button>
+      </div>`;
+    list.appendChild(li);
+  });
+}
+
+async function processMergeDocuments() {
+  const files = toolState.mergeDocsFiles;
+  if (!files || files.length < 1) {
+    alert('Please add at least one file.');
+    return;
+  }
+
+  const resultDiv = document.getElementById('mergeDocsResult');
+  resultDiv.innerHTML = createLoadingHTML('Merging documents…');
+  document.getElementById('mergeDocsBtn').disabled = true;
+
+  try {
+    const PDFLib = await loadPdfLib();
+    const { PDFDocument } = PDFLib;
+
+    const mergedPdf = await PDFDocument.create();
+    let totalPages = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      if (isPdf(file)) {
+        // Embed all pages from the PDF
+        let arrayBuffer;
+        try {
+          arrayBuffer = await readFileAsArrayBuffer(file);
+        } catch (e) {
+          throw new Error('Could not read "' + file.name + '".');
+        }
+        let srcDoc;
+        try {
+          srcDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+        } catch (e) {
+          throw new Error('"' + file.name + '" could not be opened. It may be password-protected or corrupted.');
+        }
+        const copiedPages = await mergedPdf.copyPages(srcDoc, srcDoc.getPageIndices());
+        copiedPages.forEach(function (page) { mergedPdf.addPage(page); });
+        totalPages += copiedPages.length;
+
+      } else {
+        // It's an image — embed as a single PDF page
+        const ext = getExtension(file.name);
+        let pdfImage;
+
+        if (ext === 'jpg' || ext === 'jpeg') {
+          const arrayBuffer = await readFileAsArrayBuffer(file);
+          pdfImage = await mergedPdf.embedJpg(arrayBuffer);
+        } else if (ext === 'png') {
+          const arrayBuffer = await readFileAsArrayBuffer(file);
+          pdfImage = await mergedPdf.embedPng(arrayBuffer);
+        } else {
+          // WEBP or other — convert to PNG via canvas
+          const dataUrl = await readFileAsDataURL(file);
+          const pngBlob = await convertImageToBlob(dataUrl, 'image/png', 1.0);
+          const pngBuffer = await pngBlob.arrayBuffer();
+          pdfImage = await mergedPdf.embedPng(pngBuffer);
+        }
+
+        // Use the image's natural dimensions as the page size (preserves aspect ratio)
+        const { width, height } = pdfImage;
+        const page = mergedPdf.addPage([width, height]);
+        page.drawImage(pdfImage, { x: 0, y: 0, width: width, height: height });
+        totalPages += 1;
+      }
+    }
+
+    const pdfBytes = await mergedPdf.save();
+    processedBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+
+    showResultWithDownload(resultDiv, 'merged-documents.pdf', {
+      'Files Merged': files.length,
+      'Total Pages': totalPages,
+      'Output Size': formatFileSize(processedBlob.size)
+    });
+
+  } catch (error) {
+    console.error('Merge Documents error:', error);
+    resultDiv.innerHTML = '';
+    showError(resultDiv, error.message || 'Something went wrong while merging. Please try again.');
+    document.getElementById('mergeDocsBtn').disabled = false;
   }
 }

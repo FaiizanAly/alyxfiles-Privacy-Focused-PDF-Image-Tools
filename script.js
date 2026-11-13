@@ -218,6 +218,10 @@ function openTool(toolId) {
     'scan-enhance':    { title: 'Scan Enhance',       accent: '#673AB7', accentBg: '#F5F0FF' },
     'merge-documents': { title: 'Merge Documents',   accent: '#6D4C41', accentBg: '#EFEBE9' },
     'privacy-check':   { title: 'PDF Privacy Check', accent: '#1565C0', accentBg: '#E3F2FD' },
+    'word-to-pdf':     { title: 'Word → PDF',        accent: '#1E88E5', accentBg: '#E3F2FD' },
+    'pdf-to-word':     { title: 'PDF → Word',        accent: '#00897B', accentBg: '#E0F2F1' },
+    'batch-images':    { title: 'Batch Images',       accent: '#FF8F00', accentBg: '#FFF8E1' },
+    'batch-pdf':       { title: 'Batch PDF',          accent: '#558B2F', accentBg: '#F1F8E9' },
   };
 
   const config = allTools[toolId];
@@ -257,6 +261,10 @@ function openTool(toolId) {
     case 'scan-enhance':   renderScanEnhance(body);   break;
     case 'merge-documents': renderMergeDocuments(body); break;
     case 'privacy-check':   renderPrivacyCheck(body);   break;
+    case 'word-to-pdf':     renderWordToPdf(body);      break;
+    case 'pdf-to-word':     renderPdfToWord(body);      break;
+    case 'batch-images':    renderBatchImages(body);    break;
+    case 'batch-pdf':       renderBatchPdf(body);       break;
     default:
       body.innerHTML = '<p style="color:var(--text-secondary);">Tool not found.</p>';
   }
@@ -510,6 +518,103 @@ function loadJsZip() {
     };
     script.onerror = function () {
       reject(new Error('ZIP library could not be loaded. Please refresh the page and try again.'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// Load Mammoth.js (for converting DOCX to HTML)
+function loadMammoth() {
+  return new Promise(function (resolve, reject) {
+    if (window.mammoth) {
+      resolve(window.mammoth);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = './lib/mammoth.browser.min.js';
+    script.onload = function () {
+      if (!window.mammoth) {
+        reject(new Error('Mammoth DOCX library loaded but window.mammoth is not available.'));
+        return;
+      }
+      console.log('Mammoth loaded successfully');
+      resolve(window.mammoth);
+    };
+    script.onerror = function () {
+      reject(new Error('Could not load Mammoth DOCX library. Please check your connection.'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// Load docx.js (for creating DOCX documents from JavaScript)
+function loadDocx() {
+  return new Promise(function (resolve, reject) {
+    if (window.docx) {
+      resolve(window.docx);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = './lib/docx.umd.min.js';
+    script.onload = function () {
+      if (!window.docx) {
+        reject(new Error('docx library loaded but window.docx is not available.'));
+        return;
+      }
+      console.log('docx loaded successfully');
+      resolve(window.docx);
+    };
+    script.onerror = function () {
+      reject(new Error('Could not load docx library. Please check your connection.'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// Load jsPDF (for client-side PDF document creation)
+function loadJsPdf() {
+  return new Promise(function (resolve, reject) {
+    if (window.jspdf || window.jsPDF) {
+      resolve(window.jspdf || { jsPDF: window.jsPDF });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = './lib/jspdf.umd.min.js';
+    script.onload = function () {
+      const lib = window.jspdf || (window.jsPDF ? { jsPDF: window.jsPDF } : null);
+      if (!lib) {
+        reject(new Error('jsPDF loaded but window.jspdf is not available.'));
+        return;
+      }
+      console.log('jsPDF loaded successfully');
+      resolve(lib);
+    };
+    script.onerror = function () {
+      reject(new Error('Could not load jsPDF library. Please check your connection.'));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// Load html2canvas (for capturing rendered HTML to canvas)
+function loadHtml2Canvas() {
+  return new Promise(function (resolve, reject) {
+    if (window.html2canvas) {
+      resolve(window.html2canvas);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = './lib/html2canvas.min.js';
+    script.onload = function () {
+      if (!window.html2canvas) {
+        reject(new Error('html2canvas loaded but window.html2canvas is not available.'));
+        return;
+      }
+      console.log('html2canvas loaded successfully');
+      resolve(window.html2canvas);
+    };
+    script.onerror = function () {
+      reject(new Error('Could not load html2canvas library. Please check your connection.'));
     };
     document.head.appendChild(script);
   });
@@ -4724,5 +4829,1576 @@ async function processPrivacyCleanup() {
     }
   } finally {
     if (cleanBtn) cleanBtn.disabled = false;
+  }
+}
+
+
+/* ============================================================
+   FEATURE 1: BATCH PROCESSING (IMAGES & PDF)
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   TOOL: BATCH IMAGES
+   ------------------------------------------------------------ */
+
+function renderBatchImages(container) {
+  // Reset temporary state
+  toolState.batchImagesFiles = [];
+  toolState.batchImagesResults = [];
+  toolState.batchImagesIsProcessing = false;
+  toolState.batchImagesCancelRequested = false;
+  toolState.batchImagesOperation = 'compress';
+
+  container.innerHTML = `
+    <div class="batch-container">
+      <!-- Operation Selection Card -->
+      <div class="batch-card">
+        <h2 class="batch-section-title">1. Choose Batch Operation</h2>
+        <div class="batch-ops-group" role="radiogroup" aria-label="Batch Operation">
+          <button type="button" class="batch-op-btn active" id="batchImgOpCompress" onclick="setBatchImagesOp('compress')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12h8M12 8v8"/></svg>
+            Compress Images
+          </button>
+          <button type="button" class="batch-op-btn" id="batchImgOpResize" onclick="setBatchImagesOp('resize')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="7 10 3 14 7 18"/><polyline points="14 7 18 3 22 7"/></svg>
+            Resize Dimensions
+          </button>
+          <button type="button" class="batch-op-btn" id="batchImgOpConvert" onclick="setBatchImagesOp('convert')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+            Convert Format
+          </button>
+        </div>
+
+        <!-- Compress Settings -->
+        <div id="batchImgCompressSettings" class="batch-settings-panel">
+          <div class="option-group" style="margin-bottom:0;">
+            <label class="option-label" for="batchImgQuality">
+              Compression Quality: <strong id="batchImgQualityVal">80%</strong>
+            </label>
+            <input type="range" id="batchImgQuality" min="10" max="100" value="80" class="range-slider"
+              oninput="document.getElementById('batchImgQualityVal').textContent = this.value + '%'" />
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-top:4px;">
+              <span>High compression (smaller file)</span>
+              <span>Balanced (80%)</span>
+              <span>Best visual quality</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Resize Settings -->
+        <div id="batchImgResizeSettings" class="batch-settings-panel" style="display:none;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;">
+            <div class="option-group">
+              <label class="option-label" for="batchImgResizeMode">Resize Mode</label>
+              <select id="batchImgResizeMode" class="option-input" onchange="toggleBatchImgResizeInputs()">
+                <option value="percent">Percentage Scale</option>
+                <option value="maxDimensions">Max Dimension Limit</option>
+              </select>
+            </div>
+            <div class="option-group" id="batchImgPercentGroup">
+              <label class="option-label" for="batchImgPercent">Scale Percentage</label>
+              <select id="batchImgPercent" class="option-input">
+                <option value="75">75% of original size</option>
+                <option value="50" selected>50% of original size</option>
+                <option value="25">25% of original size</option>
+              </select>
+            </div>
+            <div class="option-group" id="batchImgDimGroup" style="display:none;">
+              <label class="option-label" for="batchImgMaxDim">Max Width / Height (px)</label>
+              <input type="number" id="batchImgMaxDim" class="option-input" value="1200" min="50" max="8000" placeholder="1200" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Convert Settings -->
+        <div id="batchImgConvertSettings" class="batch-settings-panel" style="display:none;">
+          <div class="option-group" style="margin-bottom:0;">
+            <label class="option-label" for="batchImgTargetFormat">Target Image Format</label>
+            <select id="batchImgTargetFormat" class="option-input">
+              <option value="image/jpeg">JPG / JPEG</option>
+              <option value="image/png">PNG</option>
+              <option value="image/webp" selected>WebP (Recommended)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload Drop Zone -->
+      <div class="tool-upload" id="batchImagesDrop" role="button" tabindex="0" aria-label="Drop multiple image files or click to browse">
+        <div class="tool-upload-icon">🖼️</div>
+        <div class="tool-upload-text">Drop multiple image files here</div>
+        <div class="tool-upload-hint">or click to browse — JPG, PNG, WebP supported</div>
+        <input type="file" id="batchImagesInput" accept=".jpg,.jpeg,.png,.webp,image/*" multiple style="display:none;" />
+      </div>
+
+      <!-- Selected File List & Controls -->
+      <div id="batchImagesListWrap" class="batch-card" style="display:none;">
+        <div class="batch-files-header">
+          <span class="batch-files-count" id="batchImagesCount">0 images selected</span>
+          <div class="batch-header-actions">
+            <button type="button" class="btn-batch-download" id="batchImgAddMoreBtn" onclick="document.getElementById('batchImagesMoreInput').click()">
+              + Add More Files
+            </button>
+            <button type="button" class="btn-batch-download" id="batchImgClearBtn" onclick="batchImagesClearAll()" style="color:#C62828;">
+              Clear All
+            </button>
+            <input type="file" id="batchImagesMoreInput" accept=".jpg,.jpeg,.png,.webp,image/*" multiple style="display:none;" />
+          </div>
+        </div>
+
+        <div class="batch-file-list" id="batchImagesFileList"></div>
+
+        <!-- Progress Box -->
+        <div id="batchImagesProgressBox" class="batch-progress-box" style="display:none;">
+          <div class="batch-progress-header">
+            <span id="batchImagesProgressText">Preparing...</span>
+            <span id="batchImagesProgressPercent">0%</span>
+          </div>
+          <div class="batch-progress-track">
+            <div class="batch-progress-bar" id="batchImagesProgressBar"></div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap;">
+          <button type="button" class="btn-process" id="batchImagesProcessBtn" onclick="processBatchImages()">
+            ⚡ Process All Files
+          </button>
+          <button type="button" class="btn-batch-download" id="batchImagesCancelBtn" onclick="cancelBatchImages()" style="display:none;color:#C62828;border-color:#FFCDD2;">
+            Cancel Processing
+          </button>
+        </div>
+      </div>
+
+      <!-- Results Area -->
+      <div id="batchImagesResultsWrap" class="batch-results-wrap" style="display:none;">
+        <div class="batch-results-header">
+          <div>
+            <h2 class="batch-results-title">Batch Processing Complete</h2>
+            <p style="font-size:13px;color:var(--text-secondary);margin-top:2px;" id="batchImagesSummaryStats"></p>
+          </div>
+          <button type="button" class="btn-download-all-zip" id="batchImagesZipBtn" onclick="downloadBatchImagesZip()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download All as ZIP
+          </button>
+        </div>
+        <div class="batch-results-list" id="batchImagesResultsList"></div>
+      </div>
+    </div>
+  `;
+
+  setupBatchImagesListeners();
+}
+
+function setBatchImagesOp(op) {
+  toolState.batchImagesOperation = op;
+  ['batchImgOpCompress', 'batchImgOpResize', 'batchImgOpConvert'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+
+  const compressPanel = document.getElementById('batchImgCompressSettings');
+  const resizePanel = document.getElementById('batchImgResizeSettings');
+  const convertPanel = document.getElementById('batchImgConvertSettings');
+
+  if (compressPanel) compressPanel.style.display = op === 'compress' ? 'block' : 'none';
+  if (resizePanel) resizePanel.style.display = op === 'resize' ? 'block' : 'none';
+  if (convertPanel) convertPanel.style.display = op === 'convert' ? 'block' : 'none';
+
+  if (op === 'compress') document.getElementById('batchImgOpCompress').classList.add('active');
+  if (op === 'resize') document.getElementById('batchImgOpResize').classList.add('active');
+  if (op === 'convert') document.getElementById('batchImgOpConvert').classList.add('active');
+}
+
+function toggleBatchImgResizeInputs() {
+  const mode = document.getElementById('batchImgResizeMode').value;
+  const pGroup = document.getElementById('batchImgPercentGroup');
+  const dGroup = document.getElementById('batchImgDimGroup');
+  if (pGroup) pGroup.style.display = mode === 'percent' ? 'block' : 'none';
+  if (dGroup) dGroup.style.display = mode === 'maxDimensions' ? 'block' : 'none';
+}
+
+function setupBatchImagesListeners() {
+  const dropZone = document.getElementById('batchImagesDrop');
+  const input = document.getElementById('batchImagesInput');
+  const moreInput = document.getElementById('batchImagesMoreInput');
+
+  if (dropZone && input) {
+    dropZone.addEventListener('click', () => input.click());
+    dropZone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+
+    input.addEventListener('change', function () {
+      const files = validateBatchImages(Array.from(this.files));
+      if (files.length > 0) addBatchImagesFiles(files);
+      this.value = '';
+    });
+
+    dropZone.addEventListener('dragenter', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+    dropZone.addEventListener('dragleave', (e) => {
+      if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const files = validateBatchImages(Array.from(e.dataTransfer.files));
+      if (files.length > 0) addBatchImagesFiles(files);
+    });
+  }
+
+  if (moreInput) {
+    moreInput.addEventListener('change', function () {
+      const files = validateBatchImages(Array.from(this.files));
+      if (files.length > 0) addBatchImagesFiles(files);
+      this.value = '';
+    });
+  }
+}
+
+function validateBatchImages(files) {
+  const valid = [];
+  for (const file of files) {
+    if (isImage(file)) {
+      valid.push(file);
+    } else {
+      alert('"' + file.name + '" is not a supported image file (JPG, PNG, WebP).');
+    }
+  }
+  return valid;
+}
+
+function addBatchImagesFiles(newFiles) {
+  newFiles.forEach(file => {
+    toolState.batchImagesFiles.push({
+      id: Math.random().toString(36).substring(2, 9),
+      file: file,
+      status: 'pending',
+      errorMsg: null,
+      outputBlob: null,
+      outputName: null,
+      outputSize: null
+    });
+  });
+
+  renderBatchImagesFileList();
+}
+
+function removeBatchImageFile(index) {
+  if (toolState.batchImagesIsProcessing) return;
+  toolState.batchImagesFiles.splice(index, 1);
+  renderBatchImagesFileList();
+}
+
+function batchImagesClearAll() {
+  if (toolState.batchImagesIsProcessing) return;
+  toolState.batchImagesFiles = [];
+  toolState.batchImagesResults = [];
+  renderBatchImagesFileList();
+  const resultsWrap = document.getElementById('batchImagesResultsWrap');
+  if (resultsWrap) resultsWrap.style.display = 'none';
+}
+
+function renderBatchImagesFileList() {
+  const wrap = document.getElementById('batchImagesListWrap');
+  const countEl = document.getElementById('batchImagesCount');
+  const list = document.getElementById('batchImagesFileList');
+  const processBtn = document.getElementById('batchImagesProcessBtn');
+  const files = toolState.batchImagesFiles || [];
+
+  if (!wrap || !list) return;
+
+  if (files.length === 0) {
+    wrap.style.display = 'none';
+    if (processBtn) processBtn.disabled = true;
+    return;
+  }
+
+  wrap.style.display = 'block';
+  countEl.textContent = files.length + ' image' + (files.length !== 1 ? 's' : '') + ' selected';
+  if (processBtn) processBtn.disabled = toolState.batchImagesIsProcessing;
+
+  list.innerHTML = '';
+  files.forEach((item, idx) => {
+    const ext = getExtension(item.file.name);
+    const div = document.createElement('div');
+    div.className = 'batch-file-item';
+    div.id = 'batch-img-row-' + item.id;
+
+    let statusHtml = '<span class="batch-file-status pending">Queued</span>';
+    if (item.status === 'processing') {
+      statusHtml = '<span class="batch-file-status processing">Processing...</span>';
+    } else if (item.status === 'done') {
+      const saved = item.file.size > item.outputSize
+        ? ' (' + Math.round((1 - item.outputSize / item.file.size) * 100) + '% saved)'
+        : '';
+      statusHtml = '<span class="batch-file-status done">✓ Done' + saved + '</span>';
+    } else if (item.status === 'error') {
+      statusHtml = '<span class="batch-file-status error">Failed</span>';
+    }
+
+    div.innerHTML = `
+      <span class="batch-file-order">${idx + 1}</span>
+      <span class="batch-file-icon">🖼️</span>
+      <div class="batch-file-details">
+        <span class="batch-file-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</span>
+        <div class="batch-file-meta">
+          <span class="batch-file-format">${ext}</span>
+          <span>${formatFileSize(item.file.size)}</span>
+          ${item.outputSize ? '<span>&rarr; ' + formatFileSize(item.outputSize) + '</span>' : ''}
+        </div>
+      </div>
+      ${statusHtml}
+      <button type="button" class="batch-file-remove" onclick="removeBatchImageFile(${idx})"
+        ${toolState.batchImagesIsProcessing ? 'disabled' : ''} title="Remove file" aria-label="Remove file">&times;</button>
+    `;
+    list.appendChild(div);
+  });
+}
+
+function cancelBatchImages() {
+  if (toolState.batchImagesIsProcessing) {
+    toolState.batchImagesCancelRequested = true;
+    const pText = document.getElementById('batchImagesProgressText');
+    if (pText) pText.textContent = 'Cancelling remaining files...';
+  }
+}
+
+async function processBatchImages() {
+  const items = toolState.batchImagesFiles;
+  if (!items || items.length === 0) return;
+
+  toolState.batchImagesIsProcessing = true;
+  toolState.batchImagesCancelRequested = false;
+  toolState.batchImagesResults = [];
+
+  const processBtn = document.getElementById('batchImagesProcessBtn');
+  const cancelBtn = document.getElementById('batchImagesCancelBtn');
+  const addMoreBtn = document.getElementById('batchImgAddMoreBtn');
+  const clearBtn = document.getElementById('batchImgClearBtn');
+  const progressBox = document.getElementById('batchImagesProgressBox');
+  const progressBar = document.getElementById('batchImagesProgressBar');
+  const progressText = document.getElementById('batchImagesProgressText');
+  const progressPercent = document.getElementById('batchImagesProgressPercent');
+  const resultsWrap = document.getElementById('batchImagesResultsWrap');
+
+  if (processBtn) processBtn.disabled = true;
+  if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+  if (addMoreBtn) addMoreBtn.disabled = true;
+  if (clearBtn) clearBtn.disabled = true;
+  if (progressBox) progressBox.style.display = 'block';
+  if (resultsWrap) resultsWrap.style.display = 'none';
+
+  const op = toolState.batchImagesOperation;
+  const quality = (parseInt(document.getElementById('batchImgQuality').value) || 80) / 100;
+  const resizeMode = document.getElementById('batchImgResizeMode').value;
+  const resizePercent = parseInt(document.getElementById('batchImgPercent').value) || 50;
+  const maxDim = parseInt(document.getElementById('batchImgMaxDim').value) || 1200;
+  const targetFormat = document.getElementById('batchImgTargetFormat').value;
+
+  const total = items.length;
+
+  for (let i = 0; i < total; i++) {
+    if (toolState.batchImagesCancelRequested) {
+      break;
+    }
+
+    const item = items[i];
+    item.status = 'processing';
+    renderBatchImagesFileList();
+
+    if (progressText) progressText.textContent = 'Processing file ' + (i + 1) + ' of ' + total + ': ' + item.file.name;
+    const pct = Math.round((i / total) * 100);
+    if (progressBar) progressBar.style.width = pct + '%';
+    if (progressPercent) progressPercent.textContent = pct + '%';
+
+    await new Promise(r => setTimeout(r, 25));
+
+    try {
+      const dataUrl = await readFileAsDataURL(item.file);
+      const img = new Image();
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = () => rej(new Error('Corrupted or unsupported image file.'));
+        img.src = dataUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      let outW = img.naturalWidth;
+      let outH = img.naturalHeight;
+      let outMime = item.file.type || 'image/jpeg';
+      let outQuality = 0.92;
+      let ext = getExtension(item.file.name);
+
+      if (op === 'compress') {
+        outQuality = quality;
+        if (ext === 'png') {
+          outMime = 'image/png';
+        } else {
+          outMime = item.file.type || 'image/jpeg';
+        }
+      } else if (op === 'resize') {
+        if (resizeMode === 'percent') {
+          const factor = resizePercent / 100;
+          outW = Math.max(1, Math.round(img.naturalWidth * factor));
+          outH = Math.max(1, Math.round(img.naturalHeight * factor));
+        } else {
+          const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+          outW = Math.max(1, Math.round(img.naturalWidth * scale));
+          outH = Math.max(1, Math.round(img.naturalHeight * scale));
+        }
+      } else if (op === 'convert') {
+        outMime = targetFormat;
+        if (targetFormat === 'image/jpeg') ext = 'jpg';
+        else if (targetFormat === 'image/png') ext = 'png';
+        else if (targetFormat === 'image/webp') ext = 'webp';
+      }
+
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext('2d');
+
+      if (outMime === 'image/jpeg') {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, outW, outH);
+      }
+
+      ctx.drawImage(img, 0, 0, outW, outH);
+
+      const blob = await new Promise((res, rej) => {
+        canvas.toBlob(b => {
+          if (b) res(b);
+          else rej(new Error('Canvas conversion failed.'));
+        }, outMime, outQuality);
+      });
+
+      const base = getBaseName(item.file.name);
+      let newFilename = base;
+      if (op === 'compress') newFilename += '-compressed.' + ext;
+      else if (op === 'resize') newFilename += '-resized.' + ext;
+      else if (op === 'convert') newFilename += '-converted.' + ext;
+      else newFilename += '-processed.' + ext;
+
+      item.status = 'done';
+      item.outputBlob = blob;
+      item.outputName = newFilename;
+      item.outputSize = blob.size;
+
+      toolState.batchImagesResults.push({
+        id: item.id,
+        name: newFilename,
+        blob: blob,
+        originalSize: item.file.size,
+        outputSize: blob.size,
+        success: true
+      });
+
+    } catch (err) {
+      console.error('Batch image error on file ' + item.file.name, err);
+      item.status = 'error';
+      item.errorMsg = err.message;
+      toolState.batchImagesResults.push({
+        id: item.id,
+        name: item.file.name,
+        blob: null,
+        originalSize: item.file.size,
+        outputSize: 0,
+        success: false,
+        error: err.message
+      });
+    }
+
+    renderBatchImagesFileList();
+  }
+
+  toolState.batchImagesIsProcessing = false;
+  if (progressBar) progressBar.style.width = '100%';
+  if (progressPercent) progressPercent.textContent = '100%';
+  if (progressText) {
+    progressText.textContent = toolState.batchImagesCancelRequested
+      ? 'Batch cancelled by user.'
+      : 'All files finished processing.';
+  }
+
+  if (processBtn) processBtn.disabled = false;
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  if (addMoreBtn) addMoreBtn.disabled = false;
+  if (clearBtn) clearBtn.disabled = false;
+
+  renderBatchImagesResults();
+}
+
+function renderBatchImagesResults() {
+  const results = toolState.batchImagesResults;
+  const wrap = document.getElementById('batchImagesResultsWrap');
+  const list = document.getElementById('batchImagesResultsList');
+  const statsEl = document.getElementById('batchImagesSummaryStats');
+  const zipBtn = document.getElementById('batchImagesZipBtn');
+
+  if (!wrap || !list || !results || results.length === 0) return;
+
+  const successful = results.filter(r => r.success);
+  if (successful.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+
+  wrap.style.display = 'block';
+
+  let totalOrig = 0;
+  let totalOut = 0;
+  successful.forEach(r => {
+    totalOrig += r.originalSize;
+    totalOut += r.outputSize;
+  });
+
+  const savedBytes = totalOrig - totalOut;
+  const savedPercent = totalOrig > 0 ? Math.round((savedBytes / totalOrig) * 100) : 0;
+
+  if (statsEl) {
+    statsEl.textContent = `${successful.length} of ${results.length} files successfully processed · Total output: ${formatFileSize(totalOut)}` +
+      (savedBytes > 0 ? ' (' + formatFileSize(savedBytes) + ' / ' + savedPercent + '% saved)' : '');
+  }
+
+  if (zipBtn) zipBtn.disabled = successful.length === 0;
+
+  list.innerHTML = '';
+  successful.forEach(res => {
+    const row = document.createElement('div');
+    row.className = 'batch-result-row';
+
+    const diff = res.originalSize - res.outputSize;
+    const diffPct = res.originalSize > 0 ? Math.round((diff / res.originalSize) * 100) : 0;
+    const savedHtml = diff > 0
+      ? '<span class="batch-result-saved">Saved ' + formatFileSize(diff) + ' (' + diffPct + '%)</span>'
+      : '';
+
+    row.innerHTML = `
+      <div class="batch-result-info">
+        <span class="batch-result-name" title="${escapeHtml(res.name)}">${escapeHtml(res.name)}</span>
+        <div class="batch-result-sizes">
+          <span>Input: ${formatFileSize(res.originalSize)}</span>
+          <span>&rarr;</span>
+          <span><strong>${formatFileSize(res.outputSize)}</strong></span>
+          ${savedHtml}
+        </div>
+      </div>
+      <button type="button" class="btn-batch-download" id="dl-img-${res.id}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download
+      </button>
+    `;
+
+    row.querySelector('#dl-img-' + res.id).onclick = function () {
+      downloadBlob(res.blob, res.name);
+    };
+
+    list.appendChild(row);
+  });
+}
+
+async function downloadBatchImagesZip() {
+  const results = (toolState.batchImagesResults || []).filter(r => r.success && r.blob);
+  if (results.length === 0) {
+    alert('No processed files available for ZIP download.');
+    return;
+  }
+
+  const zipBtn = document.getElementById('batchImagesZipBtn');
+  const originalText = zipBtn ? zipBtn.innerHTML : '';
+  if (zipBtn) {
+    zipBtn.disabled = true;
+    zipBtn.innerHTML = 'Creating ZIP...';
+  }
+
+  try {
+    const JSZip = await loadJsZip();
+    const zip = new JSZip();
+
+    results.forEach(res => {
+      zip.file(res.name, res.blob);
+    });
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(zipBlob, 'alyxfiles-batch-images.zip');
+  } catch (err) {
+    console.error('ZIP creation error:', err);
+    alert('Failed to create ZIP: ' + err.message);
+  } finally {
+    if (zipBtn) {
+      zipBtn.disabled = false;
+      zipBtn.innerHTML = originalText;
+    }
+  }
+}
+
+/* ------------------------------------------------------------
+   TOOL: BATCH PDF
+   ------------------------------------------------------------ */
+
+function renderBatchPdf(container) {
+  toolState.batchPdfFiles = [];
+  toolState.batchPdfResults = [];
+  toolState.batchPdfIsProcessing = false;
+  toolState.batchPdfCancelRequested = false;
+  toolState.batchPdfOperation = 'compress';
+
+  container.innerHTML = `
+    <div class="batch-container">
+      <!-- Operation Selection Card -->
+      <div class="batch-card">
+        <h2 class="batch-section-title">1. Choose Batch PDF Operation</h2>
+        <div class="batch-ops-group" role="radiogroup" aria-label="Batch PDF Operation">
+          <button type="button" class="batch-op-btn active" id="batchPdfOpCompress" onclick="setBatchPdfOp('compress')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="8 6 2 12 8 18"/><polyline points="16 6 22 12 16 18"/></svg>
+            Compress PDFs
+          </button>
+          <button type="button" class="batch-op-btn" id="batchPdfOpImages" onclick="setBatchPdfOp('images')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            PDF to Images
+          </button>
+        </div>
+
+        <div id="batchPdfOpDescription" style="font-size:13.5px;color:var(--text-secondary);line-height:1.5;">
+          Compress multiple PDF documents locally using client-side object optimization.
+        </div>
+      </div>
+
+      <!-- Upload Drop Zone -->
+      <div class="tool-upload" id="batchPdfDrop" role="button" tabindex="0" aria-label="Drop multiple PDF files or click to browse">
+        <div class="tool-upload-icon">📄</div>
+        <div class="tool-upload-text">Drop multiple PDFs here</div>
+        <div class="tool-upload-hint">or click to browse — .pdf files supported</div>
+        <input type="file" id="batchPdfInput" accept=".pdf,application/pdf" multiple style="display:none;" />
+      </div>
+
+      <!-- Selected File List & Controls -->
+      <div id="batchPdfListWrap" class="batch-card" style="display:none;">
+        <div class="batch-files-header">
+          <span class="batch-files-count" id="batchPdfCount">0 PDFs selected</span>
+          <div class="batch-header-actions">
+            <button type="button" class="btn-batch-download" id="batchPdfAddMoreBtn" onclick="document.getElementById('batchPdfMoreInput').click()">
+              + Add More Files
+            </button>
+            <button type="button" class="btn-batch-download" id="batchPdfClearBtn" onclick="batchPdfClearAll()" style="color:#C62828;">
+              Clear All
+            </button>
+            <input type="file" id="batchPdfMoreInput" accept=".pdf,application/pdf" multiple style="display:none;" />
+          </div>
+        </div>
+
+        <div class="batch-file-list" id="batchPdfFileList"></div>
+
+        <!-- Progress Box -->
+        <div id="batchPdfProgressBox" class="batch-progress-box" style="display:none;">
+          <div class="batch-progress-header">
+            <span id="batchPdfProgressText">Preparing...</span>
+            <span id="batchPdfProgressPercent">0%</span>
+          </div>
+          <div class="batch-progress-track">
+            <div class="batch-progress-bar" id="batchPdfProgressBar"></div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap;">
+          <button type="button" class="btn-process" id="batchPdfProcessBtn" onclick="processBatchPdf()">
+            ⚡ Process All PDFs
+          </button>
+          <button type="button" class="btn-batch-download" id="batchPdfCancelBtn" onclick="cancelBatchPdf()" style="display:none;color:#C62828;border-color:#FFCDD2;">
+            Cancel Processing
+          </button>
+        </div>
+      </div>
+
+      <!-- Results Area -->
+      <div id="batchPdfResultsWrap" class="batch-results-wrap" style="display:none;">
+        <div class="batch-results-header">
+          <div>
+            <h2 class="batch-results-title">Batch PDF Processing Complete</h2>
+            <p style="font-size:13px;color:var(--text-secondary);margin-top:2px;" id="batchPdfSummaryStats"></p>
+          </div>
+          <button type="button" class="btn-download-all-zip" id="batchPdfZipBtn" onclick="downloadBatchPdfZip()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download All as ZIP
+          </button>
+        </div>
+        <div class="batch-results-list" id="batchPdfResultsList"></div>
+      </div>
+    </div>
+  `;
+
+  setupBatchPdfListeners();
+}
+
+function setBatchPdfOp(op) {
+  toolState.batchPdfOperation = op;
+  const compBtn = document.getElementById('batchPdfOpCompress');
+  const imgBtn = document.getElementById('batchPdfOpImages');
+  const desc = document.getElementById('batchPdfOpDescription');
+
+  if (compBtn) compBtn.classList.toggle('active', op === 'compress');
+  if (imgBtn) imgBtn.classList.toggle('active', op === 'images');
+
+  if (desc) {
+    desc.textContent = op === 'compress'
+      ? 'Compress multiple PDF documents locally using client-side object optimization.'
+      : 'Convert pages of multiple PDF documents into high-quality JPG images.';
+  }
+}
+
+function setupBatchPdfListeners() {
+  const dropZone = document.getElementById('batchPdfDrop');
+  const input = document.getElementById('batchPdfInput');
+  const moreInput = document.getElementById('batchPdfMoreInput');
+
+  if (dropZone && input) {
+    dropZone.addEventListener('click', () => input.click());
+    dropZone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+
+    input.addEventListener('change', function () {
+      const files = validateBatchPdf(Array.from(this.files));
+      if (files.length > 0) addBatchPdfFiles(files);
+      this.value = '';
+    });
+
+    dropZone.addEventListener('dragenter', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+    dropZone.addEventListener('dragleave', (e) => {
+      if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const files = validateBatchPdf(Array.from(e.dataTransfer.files));
+      if (files.length > 0) addBatchPdfFiles(files);
+    });
+  }
+
+  if (moreInput) {
+    moreInput.addEventListener('change', function () {
+      const files = validateBatchPdf(Array.from(this.files));
+      if (files.length > 0) addBatchPdfFiles(files);
+      this.value = '';
+    });
+  }
+}
+
+function validateBatchPdf(files) {
+  const valid = [];
+  for (const file of files) {
+    if (isPdf(file)) {
+      valid.push(file);
+    } else {
+      alert('"' + file.name + '" is not a PDF file.');
+    }
+  }
+  return valid;
+}
+
+function addBatchPdfFiles(newFiles) {
+  newFiles.forEach(file => {
+    toolState.batchPdfFiles.push({
+      id: Math.random().toString(36).substring(2, 9),
+      file: file,
+      status: 'pending',
+      errorMsg: null,
+      outputBlob: null,
+      outputName: null,
+      outputSize: null
+    });
+  });
+
+  renderBatchPdfFileList();
+}
+
+function removeBatchPdfFile(index) {
+  if (toolState.batchPdfIsProcessing) return;
+  toolState.batchPdfFiles.splice(index, 1);
+  renderBatchPdfFileList();
+}
+
+function batchPdfClearAll() {
+  if (toolState.batchPdfIsProcessing) return;
+  toolState.batchPdfFiles = [];
+  toolState.batchPdfResults = [];
+  renderBatchPdfFileList();
+  const resultsWrap = document.getElementById('batchPdfResultsWrap');
+  if (resultsWrap) resultsWrap.style.display = 'none';
+}
+
+function renderBatchPdfFileList() {
+  const wrap = document.getElementById('batchPdfListWrap');
+  const countEl = document.getElementById('batchPdfCount');
+  const list = document.getElementById('batchPdfFileList');
+  const processBtn = document.getElementById('batchPdfProcessBtn');
+  const files = toolState.batchPdfFiles || [];
+
+  if (!wrap || !list) return;
+
+  if (files.length === 0) {
+    wrap.style.display = 'none';
+    if (processBtn) processBtn.disabled = true;
+    return;
+  }
+
+  wrap.style.display = 'block';
+  countEl.textContent = files.length + ' PDF' + (files.length !== 1 ? 's' : '') + ' selected';
+  if (processBtn) processBtn.disabled = toolState.batchPdfIsProcessing;
+
+  list.innerHTML = '';
+  files.forEach((item, idx) => {
+    const div = document.createElement('div');
+    div.className = 'batch-file-item';
+    div.id = 'batch-pdf-row-' + item.id;
+
+    let statusHtml = '<span class="batch-file-status pending">Queued</span>';
+    if (item.status === 'processing') {
+      statusHtml = '<span class="batch-file-status processing">Processing...</span>';
+    } else if (item.status === 'done') {
+      const saved = item.file.size > item.outputSize
+        ? ' (' + Math.round((1 - item.outputSize / item.file.size) * 100) + '% saved)'
+        : '';
+      statusHtml = '<span class="batch-file-status done">✓ Done' + saved + '</span>';
+    } else if (item.status === 'error') {
+      statusHtml = '<span class="batch-file-status error">Failed</span>';
+    }
+
+    div.innerHTML = `
+      <span class="batch-file-order">${idx + 1}</span>
+      <span class="batch-file-icon">📄</span>
+      <div class="batch-file-details">
+        <span class="batch-file-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</span>
+        <div class="batch-file-meta">
+          <span class="batch-file-format">PDF</span>
+          <span>${formatFileSize(item.file.size)}</span>
+          ${item.outputSize ? '<span>&rarr; ' + formatFileSize(item.outputSize) + '</span>' : ''}
+        </div>
+      </div>
+      ${statusHtml}
+      <button type="button" class="batch-file-remove" onclick="removeBatchPdfFile(${idx})"
+        ${toolState.batchPdfIsProcessing ? 'disabled' : ''} title="Remove file" aria-label="Remove file">&times;</button>
+    `;
+    list.appendChild(div);
+  });
+}
+
+function cancelBatchPdf() {
+  if (toolState.batchPdfIsProcessing) {
+    toolState.batchPdfCancelRequested = true;
+    const pText = document.getElementById('batchPdfProgressText');
+    if (pText) pText.textContent = 'Cancelling remaining PDFs...';
+  }
+}
+
+async function processBatchPdf() {
+  const items = toolState.batchPdfFiles;
+  if (!items || items.length === 0) return;
+
+  toolState.batchPdfIsProcessing = true;
+  toolState.batchPdfCancelRequested = false;
+  toolState.batchPdfResults = [];
+
+  const processBtn = document.getElementById('batchPdfProcessBtn');
+  const cancelBtn = document.getElementById('batchPdfCancelBtn');
+  const addMoreBtn = document.getElementById('batchPdfAddMoreBtn');
+  const clearBtn = document.getElementById('batchPdfClearBtn');
+  const progressBox = document.getElementById('batchPdfProgressBox');
+  const progressBar = document.getElementById('batchPdfProgressBar');
+  const progressText = document.getElementById('batchPdfProgressText');
+  const progressPercent = document.getElementById('batchPdfProgressPercent');
+  const resultsWrap = document.getElementById('batchPdfResultsWrap');
+
+  if (processBtn) processBtn.disabled = true;
+  if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+  if (addMoreBtn) addMoreBtn.disabled = true;
+  if (clearBtn) clearBtn.disabled = true;
+  if (progressBox) progressBox.style.display = 'block';
+  if (resultsWrap) resultsWrap.style.display = 'none';
+
+  const op = toolState.batchPdfOperation;
+  const total = items.length;
+
+  for (let i = 0; i < total; i++) {
+    if (toolState.batchPdfCancelRequested) {
+      break;
+    }
+
+    const item = items[i];
+    item.status = 'processing';
+    renderBatchPdfFileList();
+
+    if (progressText) progressText.textContent = 'Processing PDF ' + (i + 1) + ' of ' + total + ': ' + item.file.name;
+    const pct = Math.round((i / total) * 100);
+    if (progressBar) progressBar.style.width = pct + '%';
+    if (progressPercent) progressPercent.textContent = pct + '%';
+
+    await new Promise(r => setTimeout(r, 25));
+
+    try {
+      if (op === 'compress') {
+        const PDFLib = await loadPdfLib();
+        const arrayBuffer = await readFileAsArrayBuffer(item.file);
+        const doc = await PDFLib.PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+
+        // Save with object streams to optimize size
+        const pdfBytes = await doc.save({ useObjectStreams: true });
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const newFilename = getBaseName(item.file.name) + '-compressed.pdf';
+
+        item.status = 'done';
+        item.outputBlob = blob;
+        item.outputName = newFilename;
+        item.outputSize = blob.size;
+
+        toolState.batchPdfResults.push({
+          id: item.id,
+          name: newFilename,
+          blob: blob,
+          originalSize: item.file.size,
+          outputSize: blob.size,
+          success: true
+        });
+
+      } else if (op === 'images') {
+        const pdfjsLib = await loadPdfJs();
+        const arrayBuffer = await readFileAsArrayBuffer(item.file);
+        const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+        // Render page 1
+        const canvas = await renderPdfPageToCanvas(pdfDoc, 0, 1.5);
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.9));
+        const newFilename = getBaseName(item.file.name) + '-page1.jpg';
+
+        item.status = 'done';
+        item.outputBlob = blob;
+        item.outputName = newFilename;
+        item.outputSize = blob.size;
+
+        toolState.batchPdfResults.push({
+          id: item.id,
+          name: newFilename,
+          blob: blob,
+          originalSize: item.file.size,
+          outputSize: blob.size,
+          success: true
+        });
+      }
+
+    } catch (err) {
+      console.error('Batch PDF error on ' + item.file.name, err);
+      item.status = 'error';
+      item.errorMsg = err.message;
+      toolState.batchPdfResults.push({
+        id: item.id,
+        name: item.file.name,
+        blob: null,
+        originalSize: item.file.size,
+        outputSize: 0,
+        success: false,
+        error: err.message
+      });
+    }
+
+    renderBatchPdfFileList();
+  }
+
+  toolState.batchPdfIsProcessing = false;
+  if (progressBar) progressBar.style.width = '100%';
+  if (progressPercent) progressPercent.textContent = '100%';
+  if (progressText) {
+    progressText.textContent = toolState.batchPdfCancelRequested
+      ? 'Batch cancelled by user.'
+      : 'All PDFs finished processing.';
+  }
+
+  if (processBtn) processBtn.disabled = false;
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  if (addMoreBtn) addMoreBtn.disabled = false;
+  if (clearBtn) clearBtn.disabled = false;
+
+  renderBatchPdfResults();
+}
+
+function renderBatchPdfResults() {
+  const results = toolState.batchPdfResults;
+  const wrap = document.getElementById('batchPdfResultsWrap');
+  const list = document.getElementById('batchPdfResultsList');
+  const statsEl = document.getElementById('batchPdfSummaryStats');
+  const zipBtn = document.getElementById('batchPdfZipBtn');
+
+  if (!wrap || !list || !results || results.length === 0) return;
+
+  const successful = results.filter(r => r.success);
+  if (successful.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+
+  wrap.style.display = 'block';
+
+  let totalOrig = 0;
+  let totalOut = 0;
+  successful.forEach(r => {
+    totalOrig += r.originalSize;
+    totalOut += r.outputSize;
+  });
+
+  const savedBytes = totalOrig - totalOut;
+  const savedPercent = totalOrig > 0 ? Math.round((savedBytes / totalOrig) * 100) : 0;
+
+  if (statsEl) {
+    statsEl.textContent = `${successful.length} of ${results.length} PDFs successfully processed · Total output: ${formatFileSize(totalOut)}` +
+      (savedBytes > 0 ? ' (' + formatFileSize(savedBytes) + ' / ' + savedPercent + '% saved)' : '');
+  }
+
+  if (zipBtn) zipBtn.disabled = successful.length === 0;
+
+  list.innerHTML = '';
+  successful.forEach(res => {
+    const row = document.createElement('div');
+    row.className = 'batch-result-row';
+
+    const diff = res.originalSize - res.outputSize;
+    const diffPct = res.originalSize > 0 ? Math.round((diff / res.originalSize) * 100) : 0;
+    const savedHtml = diff > 0
+      ? '<span class="batch-result-saved">Saved ' + formatFileSize(diff) + ' (' + diffPct + '%)</span>'
+      : '';
+
+    row.innerHTML = `
+      <div class="batch-result-info">
+        <span class="batch-result-name" title="${escapeHtml(res.name)}">${escapeHtml(res.name)}</span>
+        <div class="batch-result-sizes">
+          <span>Input: ${formatFileSize(res.originalSize)}</span>
+          <span>&rarr;</span>
+          <span><strong>${formatFileSize(res.outputSize)}</strong></span>
+          ${savedHtml}
+        </div>
+      </div>
+      <button type="button" class="btn-batch-download" id="dl-pdf-${res.id}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download
+      </button>
+    `;
+
+    row.querySelector('#dl-pdf-' + res.id).onclick = function () {
+      downloadBlob(res.blob, res.name);
+    };
+
+    list.appendChild(row);
+  });
+}
+
+async function downloadBatchPdfZip() {
+  const results = (toolState.batchPdfResults || []).filter(r => r.success && r.blob);
+  if (results.length === 0) {
+    alert('No processed files available for ZIP download.');
+    return;
+  }
+
+  const zipBtn = document.getElementById('batchPdfZipBtn');
+  const originalText = zipBtn ? zipBtn.innerHTML : '';
+  if (zipBtn) {
+    zipBtn.disabled = true;
+    zipBtn.innerHTML = 'Creating ZIP...';
+  }
+
+  try {
+    const JSZip = await loadJsZip();
+    const zip = new JSZip();
+
+    results.forEach(res => {
+      zip.file(res.name, res.blob);
+    });
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(zipBlob, 'alyxfiles-batch-pdf.zip');
+  } catch (err) {
+    console.error('ZIP creation error:', err);
+    alert('Failed to create ZIP: ' + err.message);
+  } finally {
+    if (zipBtn) {
+      zipBtn.disabled = false;
+      zipBtn.innerHTML = originalText;
+    }
+  }
+}
+
+/* ============================================================
+   FEATURE 3: WORD TO PDF
+   ============================================================ */
+
+function renderWordToPdf(container) {
+  toolState.wordToPdfFile = null;
+  toolState.wordToPdfHtml = null;
+
+  container.innerHTML = `
+    <div class="batch-container">
+      <div class="warning-banner">
+        <span class="warning-banner-icon">⚠️</span>
+        <div>
+          <strong>Document Conversion Notice:</strong> Word to PDF conversion preserves headings, text, paragraphs, lists, and basic formatting. Complex layouts, custom fonts, advanced tables, charts, or embedded shapes may differ from the original Word view.
+        </div>
+      </div>
+
+      <div class="tool-upload" id="wordToPdfDrop" role="button" tabindex="0" aria-label="Drop DOCX file or click to browse">
+        <div class="tool-upload-icon">📝</div>
+        <div class="tool-upload-text">Drop your Word (.docx) file here</div>
+        <div class="tool-upload-hint">or click to browse — supports .docx files</div>
+        <input type="file" id="wordToPdfInput" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none;" />
+      </div>
+
+      <div id="wordToPdfFileInfo" class="file-info-bar" style="display:none;">
+        <span class="file-info-name" id="wordToPdfFileName">document.docx</span>
+        <span class="file-info-size" id="wordToPdfFileSize">0 KB</span>
+      </div>
+
+      <!-- Preview Section -->
+      <div id="wordToPdfPreviewCard" class="word-preview-card" style="display:none;">
+        <div class="word-preview-header">
+          <div>
+            <h3 class="word-preview-title">Document Preview</h3>
+            <p class="word-preview-hint">Extracted contents from your DOCX file</p>
+          </div>
+          <button type="button" class="btn-process" id="wordToPdfConvertBtn" onclick="processWordToPdf()" style="max-width:220px;padding:10px 20px;">
+            Convert to PDF
+          </button>
+        </div>
+        <div id="wordToPdfPreviewBox" class="word-preview-box"></div>
+      </div>
+
+      <div id="wordToPdfResult"></div>
+    </div>
+  `;
+
+  setupWordToPdfListeners();
+}
+
+function setupWordToPdfListeners() {
+  const dropZone = document.getElementById('wordToPdfDrop');
+  const input = document.getElementById('wordToPdfInput');
+
+  if (!dropZone || !input) return;
+
+  dropZone.addEventListener('click', () => input.click());
+  dropZone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+  });
+
+  input.addEventListener('change', function () {
+    const file = this.files[0];
+    if (file) handleWordFileSelected(file);
+    this.value = '';
+  });
+
+  dropZone.addEventListener('dragenter', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+  dropZone.addEventListener('dragleave', (e) => {
+    if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
+  });
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleWordFileSelected(file);
+  });
+}
+
+async function handleWordFileSelected(file) {
+  if (!file.name.toLowerCase().endsWith('.docx')) {
+    alert('Please select a valid Microsoft Word (.docx) document.');
+    return;
+  }
+
+  toolState.wordToPdfFile = file;
+
+  const fileInfo = document.getElementById('wordToPdfFileInfo');
+  const fileNameEl = document.getElementById('wordToPdfFileName');
+  const fileSizeEl = document.getElementById('wordToPdfFileSize');
+  const previewCard = document.getElementById('wordToPdfPreviewCard');
+  const previewBox = document.getElementById('wordToPdfPreviewBox');
+  const resultDiv = document.getElementById('wordToPdfResult');
+  const convertBtn = document.getElementById('wordToPdfConvertBtn');
+
+  if (fileNameEl) fileNameEl.textContent = file.name;
+  if (fileSizeEl) fileSizeEl.textContent = formatFileSize(file.size);
+  if (fileInfo) fileInfo.style.display = 'flex';
+  if (resultDiv) resultDiv.innerHTML = '';
+  if (previewCard) previewCard.style.display = 'block';
+  if (previewBox) previewBox.innerHTML = createLoadingHTML('Reading document preview...');
+  if (convertBtn) convertBtn.disabled = true;
+
+  try {
+    const mammoth = await loadMammoth();
+    const arrayBuffer = await readFileAsArrayBuffer(file);
+    const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+
+    toolState.wordToPdfHtml = result.value || '<p><em>(Empty document or no readable text)</em></p>';
+    if (previewBox) {
+      previewBox.innerHTML = toolState.wordToPdfHtml;
+    }
+    if (convertBtn) convertBtn.disabled = false;
+  } catch (err) {
+    console.error('Mammoth extraction error:', err);
+    if (previewBox) {
+      previewBox.innerHTML = '<p style="color:#C62828;">Could not preview document: ' + escapeHtml(err.message) + '</p>';
+    }
+    if (convertBtn) convertBtn.disabled = false;
+  }
+}
+
+async function processWordToPdf() {
+  const file = toolState.wordToPdfFile;
+  if (!file) return;
+
+  const resultDiv = document.getElementById('wordToPdfResult');
+  const convertBtn = document.getElementById('wordToPdfConvertBtn');
+
+  if (resultDiv) resultDiv.innerHTML = createLoadingHTML('Rendering document to PDF...');
+  if (convertBtn) convertBtn.disabled = true;
+
+  try {
+    const [jsPDFLib, html2canvasLib] = await Promise.all([loadJsPdf(), loadHtml2Canvas()]);
+
+    let html = toolState.wordToPdfHtml;
+    if (!html) {
+      const mammoth = await loadMammoth();
+      const arrayBuffer = await readFileAsArrayBuffer(file);
+      const res = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+      html = res.value || '<p>Document</p>';
+    }
+
+    // Create an isolated off-screen rendering element with standard document styling
+    const renderDiv = document.createElement('div');
+    renderDiv.style.cssText = 'position:absolute;left:-9999px;top:0;width:794px;padding:48px 56px;background:#ffffff;color:#1D1D1F;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.65;';
+    renderDiv.innerHTML = html;
+    document.body.appendChild(renderDiv);
+
+    // Apply clean formatting to elements inside
+    renderDiv.querySelectorAll('h1').forEach(h => h.style.cssText = 'font-size:24px;font-weight:700;margin:18px 0 8px;color:#111;');
+    renderDiv.querySelectorAll('h2').forEach(h => h.style.cssText = 'font-size:20px;font-weight:700;margin:16px 0 8px;color:#222;');
+    renderDiv.querySelectorAll('h3').forEach(h => h.style.cssText = 'font-size:16px;font-weight:600;margin:14px 0 6px;color:#333;');
+    renderDiv.querySelectorAll('p').forEach(p => p.style.cssText = 'margin:0 0 10px;');
+    renderDiv.querySelectorAll('table').forEach(t => t.style.cssText = 'border-collapse:collapse;width:100%;margin:12px 0;');
+    renderDiv.querySelectorAll('td, th').forEach(c => c.style.cssText = 'border:1px solid #ccc;padding:6px 10px;font-size:13px;');
+
+    const canvas = await html2canvasLib(renderDiv, {
+      scale: 1.5,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false
+    });
+
+    document.body.removeChild(renderDiv);
+
+    // Build PDF pages with jsPDF
+    const jsPDFClass = jsPDFLib.jsPDF || jsPDFLib.default || jsPDFLib;
+    const pdf = new jsPDFClass({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 12;
+    const contentWidth = pageWidth - (margin * 2);
+    const contentHeight = (canvas.height * contentWidth) / canvas.width;
+    const pageContentHeight = pageHeight - (margin * 2);
+
+    let currentY = 0;
+    let pageNum = 0;
+
+    while (currentY < contentHeight) {
+      if (pageNum > 0) pdf.addPage();
+      const remainingHeight = Math.min(pageContentHeight, contentHeight - currentY);
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+      pdf.addImage(imgData, 'JPEG', margin, margin - currentY, contentWidth, contentHeight, undefined, 'FAST');
+      currentY += pageContentHeight;
+      pageNum++;
+    }
+
+    const pdfArrayBuffer = pdf.output('arraybuffer');
+    const blob = new Blob([pdfArrayBuffer], { type: 'application/pdf' });
+    processedBlob = blob;
+
+    const outName = getBaseName(file.name) + '.pdf';
+    showResultWithDownload(resultDiv, outName, {
+      'Input Format': 'Word (.docx)',
+      'Input Size': formatFileSize(file.size),
+      'Output Size': formatFileSize(blob.size)
+    });
+
+  } catch (err) {
+    console.error('Word to PDF conversion error:', err);
+    resultDiv.innerHTML = '';
+    showError(resultDiv, 'Conversion failed: ' + (err.message || 'Unknown error.'));
+  } finally {
+    if (convertBtn) convertBtn.disabled = false;
+  }
+}
+
+/* ============================================================
+   FEATURE 4: PDF TO WORD
+   ============================================================ */
+
+function renderPdfToWord(container) {
+  toolState.pdfToWordFile = null;
+  toolState.pdfToWordPages = [];
+
+  container.innerHTML = `
+    <div class="batch-container">
+      <div class="warning-banner">
+        <span class="warning-banner-icon">ℹ️</span>
+        <div>
+          <strong>Conversion Scope & Limitations:</strong> PDF to Word extracts readable text, headings, and paragraph structures into an editable Microsoft Word (.docx) document.
+          <em>Note:</em> Scanned/image-only PDFs require OCR which is not supported in client-side conversion. Exact visual positioning, intricate tables, and columns cannot be mirrored identically.
+        </div>
+      </div>
+
+      <div class="tool-upload" id="pdfToWordDrop" role="button" tabindex="0" aria-label="Drop PDF file or click to browse">
+        <div class="tool-upload-icon">📄</div>
+        <div class="tool-upload-text">Drop your PDF here</div>
+        <div class="tool-upload-hint">or click to browse — text-based PDFs supported</div>
+        <input type="file" id="pdfToWordInput" accept=".pdf,application/pdf" style="display:none;" />
+      </div>
+
+      <div id="pdfToWordFileInfo" class="file-info-bar" style="display:none;">
+        <span class="file-info-name" id="pdfToWordFileName">document.pdf</span>
+        <span class="file-info-size" id="pdfToWordFileSize">0 KB</span>
+      </div>
+
+      <!-- Preview Section -->
+      <div id="pdfToWordPreviewCard" class="word-preview-card" style="display:none;">
+        <div class="word-preview-header">
+          <div>
+            <h3 class="word-preview-title">Extracted Text Preview</h3>
+            <p class="word-preview-hint" id="pdfToWordPageStats">Reading pages...</p>
+          </div>
+          <button type="button" class="btn-process" id="pdfToWordConvertBtn" onclick="processPdfToWord()" style="max-width:240px;padding:10px 20px;">
+            Save as Word (.docx)
+          </button>
+        </div>
+        <div id="pdfToWordPreviewBox" class="word-preview-box"></div>
+      </div>
+
+      <div id="pdfToWordResult"></div>
+    </div>
+  `;
+
+  setupPdfToWordListeners();
+}
+
+function setupPdfToWordListeners() {
+  const dropZone = document.getElementById('pdfToWordDrop');
+  const input = document.getElementById('pdfToWordInput');
+
+  if (!dropZone || !input) return;
+
+  dropZone.addEventListener('click', () => input.click());
+  dropZone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+  });
+
+  input.addEventListener('change', function () {
+    const file = this.files[0];
+    if (file) handlePdfForWordSelected(file);
+    this.value = '';
+  });
+
+  dropZone.addEventListener('dragenter', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+  dropZone.addEventListener('dragleave', (e) => {
+    if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over');
+  });
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) handlePdfForWordSelected(file);
+  });
+}
+
+async function handlePdfForWordSelected(file) {
+  if (!isPdf(file)) {
+    alert('Please select a valid PDF file.');
+    return;
+  }
+
+  toolState.pdfToWordFile = file;
+  toolState.pdfToWordPages = [];
+
+  const fileInfo = document.getElementById('pdfToWordFileInfo');
+  const fileNameEl = document.getElementById('pdfToWordFileName');
+  const fileSizeEl = document.getElementById('pdfToWordFileSize');
+  const previewCard = document.getElementById('pdfToWordPreviewCard');
+  const previewBox = document.getElementById('pdfToWordPreviewBox');
+  const pageStatsEl = document.getElementById('pdfToWordPageStats');
+  const resultDiv = document.getElementById('pdfToWordResult');
+  const convertBtn = document.getElementById('pdfToWordConvertBtn');
+
+  if (fileNameEl) fileNameEl.textContent = file.name;
+  if (fileSizeEl) fileSizeEl.textContent = formatFileSize(file.size);
+  if (fileInfo) fileInfo.style.display = 'flex';
+  if (resultDiv) resultDiv.innerHTML = '';
+  if (previewCard) previewCard.style.display = 'block';
+  if (previewBox) previewBox.innerHTML = createLoadingHTML('Extracting text from PDF pages...');
+  if (convertBtn) convertBtn.disabled = true;
+
+  try {
+    const pdfjsLib = await loadPdfJs();
+    const arrayBuffer = await readFileAsArrayBuffer(file);
+    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pageCount = pdfDoc.numPages;
+
+    const pages = [];
+    let totalTextChars = 0;
+
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await pdfDoc.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageStrings = textContent.items.map(item => item.str);
+      const fullText = pageStrings.join(' ').replace(/\s+/g, ' ').trim();
+      totalTextChars += fullText.length;
+
+      pages.push({
+        pageNum: i,
+        text: fullText
+      });
+    }
+
+    toolState.pdfToWordPages = pages;
+
+    if (totalTextChars < 20) {
+      if (previewBox) {
+        previewBox.innerHTML = `
+          <div class="warning-banner" style="margin-bottom:0;">
+            <span class="warning-banner-icon">⚠️</span>
+            <div>
+              <strong>No Readable Text Detected (Scanned PDF):</strong> This document appears to be an image-only or scanned PDF. Text cannot be converted to Word without Optical Character Recognition (OCR), which is not currently available in-browser.
+            </div>
+          </div>
+        `;
+      }
+      if (pageStatsEl) pageStatsEl.textContent = pageCount + ' page(s) analyzed · 0 readable characters';
+      if (convertBtn) convertBtn.disabled = true;
+      return;
+    }
+
+    if (pageStatsEl) {
+      pageStatsEl.textContent = pageCount + ' page(s) analyzed · ' + totalTextChars + ' readable characters extracted';
+    }
+
+    if (previewBox) {
+      let previewHtml = '';
+      pages.forEach(p => {
+        previewHtml += `
+          <div class="pdf-page-block">
+            <div class="pdf-page-label">Page ${p.pageNum}</div>
+            <p>${escapeHtml(p.text || '(Empty page)')}</p>
+          </div>
+        `;
+      });
+      previewBox.innerHTML = previewHtml;
+    }
+
+    if (convertBtn) convertBtn.disabled = false;
+
+  } catch (err) {
+    console.error('PDF text extraction error:', err);
+    if (previewBox) {
+      previewBox.innerHTML = '<p style="color:#C62828;">Could not read PDF: ' + escapeHtml(err.message) + '</p>';
+    }
+  }
+}
+
+async function processPdfToWord() {
+  const file = toolState.pdfToWordFile;
+  const pages = toolState.pdfToWordPages;
+  if (!file || !pages || pages.length === 0) return;
+
+  const resultDiv = document.getElementById('pdfToWordResult');
+  const convertBtn = document.getElementById('pdfToWordConvertBtn');
+
+  if (resultDiv) resultDiv.innerHTML = createLoadingHTML('Generating Word (.docx) document...');
+  if (convertBtn) convertBtn.disabled = true;
+
+  try {
+    const docxLib = await loadDocx();
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel, PageBreak } = docxLib;
+
+    const children = [];
+
+    // Header Title
+    children.push(new Paragraph({
+      text: getBaseName(file.name),
+      heading: HeadingLevel.HEADING_1
+    }));
+
+    children.push(new Paragraph({
+      children: [
+        new TextRun({
+          text: 'Converted from PDF by alyxfiles — ' + new Date().toLocaleDateString(),
+          italics: true,
+          color: '6E6E73',
+          size: 18
+        })
+      ]
+    }));
+
+    children.push(new Paragraph({ text: '' }));
+
+    pages.forEach((page, pIdx) => {
+      // Page Subheading
+      children.push(new Paragraph({
+        text: 'Page ' + page.pageNum,
+        heading: HeadingLevel.HEADING_2
+      }));
+
+      const raw = page.text || '';
+      // Split into paragraphs if multiple sentences or large spaces exist
+      const paragraphs = raw.split(/\.\s+/).filter(p => p.trim().length > 0);
+
+      if (paragraphs.length <= 1) {
+        children.push(new Paragraph({
+          children: [new TextRun({ text: raw })]
+        }));
+      } else {
+        paragraphs.forEach((pText, idx) => {
+          const suffix = (idx < paragraphs.length - 1) ? '.' : '';
+          children.push(new Paragraph({
+            children: [new TextRun({ text: pText.trim() + suffix })]
+          }));
+        });
+      }
+
+      // Add page break between pages
+      if (pIdx < pages.length - 1) {
+        children.push(new Paragraph({
+          children: [new PageBreak()]
+        }));
+      }
+    });
+
+    const doc = new Document({
+      sections: [{ children: children }]
+    });
+
+    const blob = await Packer.toBlob(doc);
+    processedBlob = blob;
+
+    const outName = getBaseName(file.name) + '-converted.docx';
+    showResultWithDownload(resultDiv, outName, {
+      'Pages Extracted': pages.length,
+      'Input PDF Size': formatFileSize(file.size),
+      'Output Word Size': formatFileSize(blob.size)
+    });
+
+  } catch (err) {
+    console.error('PDF to Word generation error:', err);
+    resultDiv.innerHTML = '';
+    showError(resultDiv, 'Could not create Word document: ' + (err.message || 'Unknown error.'));
+  } finally {
+    if (convertBtn) convertBtn.disabled = false;
   }
 }

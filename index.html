@@ -8,6 +8,13 @@
     content="alyxfiles – Simple PDF and image tools that run entirely in your browser. No uploads. No cloud. 100% private." />
   <title>alyxfiles – PDF & Image Tools</title>
   <link rel="stylesheet" href="./style.css" />
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#E53935">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="alyxfiles">
+  <link rel="apple-touch-icon" href="./assets/alyxfiles-icon.png">
 </head>
 <link rel="icon" href="./assets/alyxfiles-icon.png" type="image/png">
 
@@ -27,7 +34,9 @@
       <div class="nav-links" id="navLinks">
         <button type="button" class="nav-link" id="navCreatorBtn" onclick="openCreatorModal(); closeMenu();" aria-haspopup="dialog" aria-controls="creatorModalBackdrop">Creator</button>
         <a href="#tools-section" class="nav-link" onclick="closeMenu()">Tools</a>
+        <a href="#batch-section" class="nav-link" onclick="closeMenu()">Batch</a>
         <a href="#privacy-section" class="nav-link" onclick="closeMenu()">Privacy</a>
+        <button type="button" class="nav-link" id="pwaInstallBtn" style="display:none;" onclick="pwaInstallApp()">Install App</button>
       </div>
 
       <!-- Mobile hamburger -->
@@ -39,6 +48,14 @@
 
   <!-- ===================== HOME PAGE ===================== -->
   <main id="homePage">
+
+    <!-- OFFLINE STATUS NOTIFICATION -->
+    <div id="offlineBanner" class="offline-banner" style="display:none;" role="status">
+      <div class="offline-banner-content">
+        <span class="offline-banner-icon">⚡</span>
+        <span class="offline-banner-text"><strong>Offline Mode Active:</strong> You are currently offline. All cached tools run 100% locally.</span>
+      </div>
+    </div>
 
     <!-- HERO -->
     <section class="hero">
@@ -214,6 +231,37 @@
           <button class="btn-open-tool" onclick="openTool('privacy-check')">Open Tool</button>
         </div>
 
+        <div class="tool-card" data-tool="word-to-pdf" data-color="blue">
+          <div class="tool-icon-wrap" style="--accent:#1E88E5; --accent-bg:#E3F2FD;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Word &rarr; PDF</h3>
+          <p class="tool-desc">Convert DOCX documents to PDF in your browser.</p>
+          <button class="btn-open-tool" onclick="openTool('word-to-pdf')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="pdf-to-word" data-color="teal">
+          <div class="tool-icon-wrap" style="--accent:#00897B; --accent-bg:#E0F2F1;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <path d="M8 13h8" />
+              <path d="M8 17h5" />
+            </svg>
+          </div>
+          <h3 class="tool-name">PDF &rarr; Word</h3>
+          <p class="tool-desc">Extract text from PDF into an editable DOCX file.</p>
+          <button class="btn-open-tool" onclick="openTool('pdf-to-word')">Open Tool</button>
+        </div>
+
       </div>
     </section>
 
@@ -311,6 +359,45 @@
           <h3 class="tool-name">Scan Enhance</h3>
           <p class="tool-desc">Improve photographed document clarity &amp; readability.</p>
           <button class="btn-open-tool" onclick="openTool('scan-enhance')">Open Tool</button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- BATCH TOOLS -->
+    <section class="tools-section" id="batch-section">
+      <h2 class="section-title">Batch Processing</h2>
+      <div class="tools-grid">
+
+        <div class="tool-card" data-tool="batch-images" data-color="amber">
+          <div class="tool-icon-wrap" style="--accent:#FF8F00; --accent-bg:#FFF8E1;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="2" width="8" height="8" rx="2" />
+              <rect x="14" y="2" width="8" height="8" rx="2" />
+              <rect x="2" y="14" width="8" height="8" rx="2" />
+              <rect x="14" y="14" width="8" height="8" rx="2" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Batch Images</h3>
+          <p class="tool-desc">Compress, resize, or convert multiple images at once.</p>
+          <button class="btn-open-tool" onclick="openTool('batch-images')">Open Tool</button>
+        </div>
+
+        <div class="tool-card" data-tool="batch-pdf" data-color="lime">
+          <div class="tool-icon-wrap" style="--accent:#558B2F; --accent-bg:#F1F8E9;">
+            <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="8" y1="13" x2="16" y2="13" />
+              <line x1="8" y1="17" x2="16" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+          </div>
+          <h3 class="tool-name">Batch PDF</h3>
+          <p class="tool-desc">Compress or convert multiple PDFs to images in bulk.</p>
+          <button class="btn-open-tool" onclick="openTool('batch-pdf')">Open Tool</button>
         </div>
 
       </div>
@@ -415,6 +502,67 @@
 
   <!-- Load PDF libraries only when needed (loaded dynamically in script.js) -->
   <script src="./script.js" defer></script>
+
+  <!-- PWA: Service Worker registration & install prompt -->
+  <script>
+  // Register service worker for PWA support
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('./sw.js').then(function(reg) {
+        console.log('[PWA] SW registered');
+        reg.addEventListener('updatefound', function() {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', function() {
+            if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+              // Show update notification
+              if (confirm('alyxfiles has been updated! Reload to get the latest version?')) {
+                window.location.reload();
+              }
+            }
+          });
+        });
+      }).catch(function(err) {
+        console.log('[PWA] SW registration failed:', err);
+      });
+    });
+  }
+
+  // Handle PWA install prompt
+  let pwaInstallPrompt = null;
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    pwaInstallPrompt = e;
+    const btn = document.getElementById('pwaInstallBtn');
+    if (btn) btn.style.display = '';
+  });
+
+  function pwaInstallApp() {
+    if (!pwaInstallPrompt) return;
+    pwaInstallPrompt.prompt();
+    pwaInstallPrompt.userChoice.then(function(result) {
+      pwaInstallPrompt = null;
+      const btn = document.getElementById('pwaInstallBtn');
+      if (btn) btn.style.display = 'none';
+    });
+  }
+
+  window.addEventListener('appinstalled', function() {
+    const btn = document.getElementById('pwaInstallBtn');
+    if (btn) btn.style.display = 'none';
+    pwaInstallPrompt = null;
+  });
+
+  // Offline status indicator
+  function updateOnlineStatus() {
+    const banner = document.getElementById('offlineBanner');
+    if (banner) {
+      banner.style.display = navigator.onLine ? 'none' : 'block';
+    }
+  }
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+  updateOnlineStatus();
+  </script>
 
 </body>
 

@@ -1,0 +1,30 @@
+{
+  "name": "alyxfiles – PDF & Image Tools",
+  "short_name": "alyxfiles",
+  "description": "Simple PDF and image tools that run entirely in your browser. No uploads. No cloud. 100% private.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#E53935",
+  "background_color": "#F5F5F7",
+  "icons": [
+    {
+      "src": "./assets/alyxfiles-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/alyxfiles-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": [
+    "utilities",
+    "productivity",
+    "photo"
+  ]
+}
